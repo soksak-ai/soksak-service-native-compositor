@@ -12,7 +12,7 @@ The application declares a browser host with public attributes:
 
 ```html
 <div
-  data-wails-native-surface="browser"
+  data-native-surface="browser"
   data-native-surface-id="browser-1"
   data-native-generation="1"
   data-native-source='{"url":"https://example.com"}'

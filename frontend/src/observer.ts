@@ -89,7 +89,7 @@ export function startNativeSurfaceObserver(
   };
 }
 
-const declarationSelector = "[data-wails-native-surface]";
+const declarationSelector = "[data-native-surface]";
 
 export function nativeSurfaceDOMRuntime(
   root: ParentNode = document,
@@ -115,7 +115,7 @@ export function nativeSurfaceDOMRuntime(
         callback({
           inventoryChanged: relevant.some((record) => record.type === "childList"
             && (Array.from(record.addedNodes).some(hasDeclaration) || Array.from(record.removedNodes).some(hasDeclaration)))
-            || relevant.some((record) => record.type === "attributes" && record.attributeName === "data-wails-native-surface"),
+            || relevant.some((record) => record.type === "attributes" && record.attributeName === "data-native-surface"),
         });
       });
       observer.observe(root, {
@@ -124,7 +124,7 @@ export function nativeSurfaceDOMRuntime(
         attributes: true,
         attributeFilter: [
           "class", "style", "hidden",
-          "data-wails-native-surface", "data-native-surface-id", "data-native-generation",
+          "data-native-surface", "data-native-surface-id", "data-native-generation",
           "data-native-source", "data-native-visible", "data-native-alpha", "data-native-layer",
         ],
       });

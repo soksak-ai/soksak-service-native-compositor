@@ -28,7 +28,7 @@ export function collectNativeSurfaceSnapshot(
   const surfaces: NativeSurface[] = [];
 
   for (const declaration of declarations) {
-    const kind = declaration.dataset.wailsNativeSurface;
+    const kind = declaration.dataset.nativeSurface;
     const id = declaration.dataset.nativeSurfaceId ?? "";
     const generation = Number(declaration.dataset.nativeGeneration);
     const layer = Number(declaration.dataset.nativeLayer ?? 0);

@@ -6,7 +6,7 @@ import type { NativeSurfaceDeclaration, NativeSurfaceSnapshot } from "./snapshot
 function declaration(id: string, left: () => number): NativeSurfaceDeclaration {
   return {
     dataset: {
-      wailsNativeSurface: "browser",
+      nativeSurface: "browser",
       nativeSurfaceId: id,
       nativeGeneration: "1",
       nativeSource: JSON.stringify({ url: "https://example.com" }),
