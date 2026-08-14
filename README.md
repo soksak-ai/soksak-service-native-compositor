@@ -2,8 +2,9 @@
 
 `wails-native-compositor` makes DOM-declared native child surfaces follow one
 validated inventory contract. Applications declare surfaces; this package owns
-observation, sequencing, AppKit/WKWebView lifecycle, frame, visibility, alpha,
-layer order, stale rejection, and applied receipts.
+observation, sequencing, stale rejection, and applied receipts. A native
+surface plugin implements the public Go `Backend` interface and owns its native
+technology. `soksak-browser-native`, for example, owns AppKit and WKWebView.
 
 ## Contract
 
@@ -30,10 +31,8 @@ The Go service exposes:
 - `Commit(Snapshot) (Receipt, error)` — the only native writer;
 - `Status() Receipt` — the latest accepted applied inventory.
 
-On macOS, one main-thread AppKit batch creates, updates, orders, hides, and
-removes all WKWebViews. A snapshot with a stale sequence is rejected without
-reaching AppKit. Replacing a surface generation replaces its native owner;
-updating the same generation preserves it.
+A snapshot with a stale sequence is rejected without reaching the injected
+backend. The backend returns the complete applied inventory in one receipt.
 
 The host application registers the service with Wails and injects the generated
 `Commit` binding into `startNativeSurfaceObserver`. No application-specific
