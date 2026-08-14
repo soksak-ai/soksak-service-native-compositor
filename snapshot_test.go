@@ -12,8 +12,8 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 	first := Snapshot{
 		Sequence: 1,
 		Surfaces: []Surface{
-			{ID: "browser-left", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true},
-			{ID: "browser-right", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 400, Y: 0, Width: 400, Height: 600}, Visible: true},
+			{ID: "browser-left", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"url": "https://example.com/left"}},
+			{ID: "browser-right", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 400, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"url": "https://example.com/right"}},
 		},
 	}
 

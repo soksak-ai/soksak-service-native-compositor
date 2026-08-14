@@ -19,9 +19,9 @@ type Frame struct {
 	Height float64 `json:"height"`
 }
 
-type SurfaceSource struct {
-	URL string `json:"url,omitempty"`
-}
+// SurfaceSource is opaque to the compositor. The native surface plugin owns
+// the meaning of its declared keys.
+type SurfaceSource map[string]string
 
 type Surface struct {
 	ID         string        `json:"id"`
