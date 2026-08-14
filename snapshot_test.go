@@ -49,6 +49,19 @@ func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 	}
 }
 
+func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
+	backend := &recordingBackend{}
+	window := byte(1)
+	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	_, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{{
+		ID: "project-defined", Generation: 1, Kind: SurfaceKind("project-native-kind"),
+		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
+	}}})
+	if err != nil {
+		t.Fatalf("compositor must not know backend-owned surface kinds: %v", err)
+	}
+}
+
 func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
