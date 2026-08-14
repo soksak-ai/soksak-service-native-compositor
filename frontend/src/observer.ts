@@ -102,7 +102,7 @@ export function nativeSurfaceDOMRuntime(root: ParentNode = document): NativeSurf
         attributeFilter: [
           "class", "style", "hidden",
           "data-wails-native-surface", "data-native-surface-id", "data-native-generation",
-          "data-native-url", "data-native-visible", "data-native-alpha", "data-native-layer",
+          "data-native-source", "data-native-visible", "data-native-alpha", "data-native-layer",
         ],
       });
       return () => observer.disconnect();

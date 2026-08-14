@@ -7,7 +7,7 @@ export type NativeSurface = {
   visible: boolean;
   alpha: number;
   layer: number;
-  source: { url: string };
+  source: Record<string, string>;
 };
 export type NativeSurfaceSnapshot = { sequence: number; surfaces: NativeSurface[] };
 
@@ -33,6 +33,15 @@ export function collectNativeSurfaceSnapshot(
     const generation = Number(declaration.dataset.nativeGeneration);
     const layer = Number(declaration.dataset.nativeLayer ?? 0);
     const alpha = Number(declaration.dataset.nativeAlpha ?? 1);
+    let source: Record<string, string>;
+    try {
+      source = JSON.parse(declaration.dataset.nativeSource ?? "{}") as Record<string, string>;
+    } catch {
+      throw new Error(`native surface source is invalid: ${id || "missing"}`);
+    }
+    if (source === null || Array.isArray(source) || Object.values(source).some((value) => typeof value !== "string")) {
+      throw new Error(`native surface source is invalid: ${id || "missing"}`);
+    }
     if (kind !== "browser") throw new Error(`unsupported native surface kind: ${kind ?? "missing"}`);
     if (!id) throw new Error("native surface id is required");
     if (seen.has(id)) throw new Error(`duplicate native surface id: ${id}`);
@@ -56,7 +65,7 @@ export function collectNativeSurfaceSnapshot(
       visible: declaration.isConnected && declaration.dataset.nativeVisible !== "false" && frame.width > 0 && frame.height > 0,
       alpha,
       layer,
-      source: { url: declaration.dataset.nativeUrl ?? "about:blank" },
+      source,
     });
   }
 

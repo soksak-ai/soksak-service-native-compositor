@@ -15,7 +15,7 @@ The application declares a browser host with public attributes:
   data-wails-native-surface="browser"
   data-native-surface-id="browser-1"
   data-native-generation="1"
-  data-native-url="https://example.com"
+  data-native-source='{"url":"https://example.com"}'
   data-native-visible="true"
   data-native-alpha="1"
   data-native-layer="10"

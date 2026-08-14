@@ -9,7 +9,7 @@ function declaration(id: string, left: () => number): NativeSurfaceDeclaration {
       wailsNativeSurface: "browser",
       nativeSurfaceId: id,
       nativeGeneration: "1",
-      nativeUrl: "https://example.com",
+      nativeSource: JSON.stringify({ url: "https://example.com" }),
       nativeLayer: "1",
     },
     isConnected: true,

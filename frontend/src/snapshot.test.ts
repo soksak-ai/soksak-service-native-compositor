@@ -33,7 +33,7 @@ function declaration(id: string, generation: number, rect: { left: number; top: 
       wailsNativeSurface: "browser",
       nativeSurfaceId: id,
       nativeGeneration: String(generation),
-      nativeUrl: `https://example.com/${id}`,
+      nativeSource: JSON.stringify({ url: `https://example.com/${id}` }),
       nativeLayer: id === "left" ? "10" : "20",
     },
     isConnected: true,
