@@ -49,6 +49,28 @@ func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 	}
 }
 
+func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
+	backend := &recordingBackend{}
+	window := byte(1)
+	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	if _, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{{
+		ID: "surface-1", Generation: 1, Kind: BrowserSurface,
+		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
+	}}}); err != nil {
+		t.Fatalf("commit surface inventory: %v", err)
+	}
+	if err := service.ServiceShutdown(); err != nil {
+		t.Fatalf("shutdown compositor service: %v", err)
+	}
+	if len(backend.snapshots) != 2 || len(backend.snapshots[1].Surfaces) != 0 {
+		t.Fatalf("shutdown must remove every native surface in one empty inventory: %+v", backend.snapshots)
+	}
+	status := service.Status()
+	if !status.Accepted || status.Sequence != 2 || len(status.Surfaces) != 0 {
+		t.Fatalf("shutdown status must expose the applied empty inventory: %+v", status)
+	}
+}
+
 type recordingBackend struct {
 	snapshots []Snapshot
 }
