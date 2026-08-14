@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
 import { collectNativeSurfaceSnapshot } from "./snapshot";
@@ -32,15 +33,18 @@ describe("declarative native surface inventory", () => {
   });
 });
 
+// The fixture is built from real attributes, not from a hand-written dataset.
+// A hand-written dataset lets the reader and the declaration drift apart while
+// every test stays green — which is exactly what happened here once.
 function declaration(id: string, generation: number, rect: { left: number; top: number; width: number; height: number }, kind = "browser") {
+  const element = document.createElement("div");
+  element.setAttribute("data-native-surface", kind);
+  element.setAttribute("data-native-surface-id", id);
+  element.setAttribute("data-native-generation", String(generation));
+  element.setAttribute("data-native-source", JSON.stringify({ url: `https://example.com/${id}` }));
+  element.setAttribute("data-native-layer", id === "left" ? "10" : "20");
   return {
-    dataset: {
-      wailsNativeSurface: kind,
-      nativeSurfaceId: id,
-      nativeGeneration: String(generation),
-      nativeSource: JSON.stringify({ url: `https://example.com/${id}` }),
-      nativeLayer: id === "left" ? "10" : "20",
-    },
+    dataset: element.dataset,
     isConnected: true,
     getBoundingClientRect: () => rect,
   };
