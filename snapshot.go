@@ -10,8 +10,6 @@ import (
 
 type SurfaceKind string
 
-const BrowserSurface SurfaceKind = "browser"
-
 type Frame struct {
 	X      float64 `json:"x"`
 	Y      float64 `json:"y"`
@@ -91,8 +89,8 @@ func validateSnapshot(snapshot Snapshot) error {
 		if surface.ID == "" || surface.Generation == 0 {
 			return fmt.Errorf("native surface identity is invalid: %q/%d", surface.ID, surface.Generation)
 		}
-		if surface.Kind != BrowserSurface {
-			return fmt.Errorf("unsupported native surface kind: %q", surface.Kind)
+		if surface.Kind == "" {
+			return fmt.Errorf("native surface kind is required: %s", surface.ID)
 		}
 		if !validFrame(surface.Frame) {
 			return fmt.Errorf("native surface frame is invalid: %s", surface.ID)

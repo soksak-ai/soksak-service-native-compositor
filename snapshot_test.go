@@ -12,8 +12,8 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 	first := Snapshot{
 		Sequence: 1,
 		Surfaces: []Surface{
-			{ID: "browser-left", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"url": "https://example.com/left"}},
-			{ID: "browser-right", Generation: 1, Kind: BrowserSurface, Frame: Frame{X: 400, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"url": "https://example.com/right"}},
+			{ID: "surface-left", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"owner": "left"}},
+			{ID: "surface-right", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{X: 400, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"owner": "right"}},
 		},
 	}
 
@@ -41,8 +41,8 @@ func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 	window := byte(1)
 	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, &recordingBackend{})
 	_, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{
-		{ID: "same", Generation: 1, Kind: BrowserSurface, Frame: Frame{Width: 10, Height: 10}},
-		{ID: "same", Generation: 2, Kind: BrowserSurface, Frame: Frame{Width: 10, Height: 10}},
+		{ID: "same", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
+		{ID: "same", Generation: 2, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
 	}})
 	if err == nil {
 		t.Fatal("one snapshot cannot contain duplicate surface owners")
@@ -67,7 +67,7 @@ func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	window := byte(1)
 	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
 	if _, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{{
-		ID: "surface-1", Generation: 1, Kind: BrowserSurface,
+		ID: "surface-1", Generation: 1, Kind: SurfaceKind("test-surface"),
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}}); err != nil {
 		t.Fatalf("commit surface inventory: %v", err)
