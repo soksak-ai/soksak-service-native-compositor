@@ -30,6 +30,7 @@ describe("native surface observer", () => {
     let mutation!: () => void;
     let resize!: () => void;
     let release = deferred();
+    const secondStarted = deferred();
     const commits: NativeSurfaceSnapshot[] = [];
     const runtime: NativeSurfaceObserverRuntime = {
       declarations: () => [element],
@@ -39,6 +40,7 @@ describe("native surface observer", () => {
     };
     const controller = startNativeSurfaceObserver(runtime, async (snapshot) => {
       commits.push(snapshot);
+      if (commits.length === 2) secondStarted.resolve();
       await release.promise;
       return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
     });
@@ -54,8 +56,7 @@ describe("native surface observer", () => {
 
     release.resolve();
     release = deferred();
-    await Promise.resolve();
-    await Promise.resolve();
+    await secondStarted.promise;
     expect(commits).toHaveLength(2);
     expect(commits[1].surfaces[0].frame.x).toBe(200);
     expect(commits[1].sequence).toBeGreaterThan(commits[0].sequence);
