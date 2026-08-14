@@ -1,5 +1,5 @@
 {
-  "name": "@soksak/wails-native-compositor",
+  "name": "@soksak/wails-service-native-compositor",
   "version": "0.0.1",
   "private": true,
   "type": "module",
