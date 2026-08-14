@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"unsafe"
 )
 
 type SurfaceKind string
@@ -54,17 +55,17 @@ type Receipt struct {
 }
 
 type Backend interface {
-	Apply(window uintptr, snapshot Snapshot) ([]AppliedSurface, error)
+	Apply(window unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error)
 }
 
 type Service struct {
 	mu      sync.Mutex
-	window  func() uintptr
+	window  func() unsafe.Pointer
 	backend Backend
 	latest  Receipt
 }
 
-func NewService(window func() uintptr, backend Backend) *Service {
+func NewService(window func() unsafe.Pointer, backend Backend) *Service {
 	return &Service{window: window, backend: backend}
 }
 
@@ -115,7 +116,7 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		stale.Accepted = false
 		return stale, nil
 	}
-	if service.window == nil || service.window() == 0 {
+	if service.window == nil || service.window() == nil {
 		return Receipt{}, fmt.Errorf("native surface window is not ready")
 	}
 	if service.backend == nil {

@@ -1,6 +1,11 @@
 package nativesurface
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"unsafe"
+)
 
 type nativeAction uint8
 
@@ -12,14 +17,69 @@ const (
 
 type nativeOwner struct {
 	generation uint64
-	native     uintptr
+	native     unsafe.Pointer
 	source     SurfaceSource
 }
 
 type nativeOperation struct {
-	action  nativeAction
+	action   nativeAction
+	surface  Surface
+	native   unsafe.Pointer
+	navigate bool
+}
+
+type nativeResult struct {
 	surface Surface
-	native  uintptr
+	native  unsafe.Pointer
+}
+
+type nativeBatchDriver interface {
+	apply(window unsafe.Pointer, operations []nativeOperation) ([]nativeResult, error)
+}
+
+type nativeBackend struct {
+	mu     sync.Mutex
+	driver nativeBatchDriver
+	owners map[string]nativeOwner
+}
+
+func newNativeBackend(driver nativeBatchDriver) *nativeBackend {
+	return &nativeBackend{driver: driver, owners: make(map[string]nativeOwner)}
+}
+
+// Apply is the only native writer. It plans the complete desired inventory,
+// crosses the platform boundary once, then publishes owners only after the
+// whole native batch succeeds.
+func (backend *nativeBackend) Apply(window unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if backend.driver == nil {
+		return nil, fmt.Errorf("native surface batch driver is not configured")
+	}
+	operations := planNativeBatch(backend.owners, snapshot)
+	results, err := backend.driver.apply(window, operations)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != len(snapshot.Surfaces) {
+		return nil, fmt.Errorf("native surface batch receipt inventory mismatch: desired=%d applied=%d", len(snapshot.Surfaces), len(results))
+	}
+
+	next := make(map[string]nativeOwner, len(results))
+	applied := make([]AppliedSurface, 0, len(results))
+	for _, result := range results {
+		surface := result.surface
+		if result.native == nil {
+			return nil, fmt.Errorf("native surface batch returned empty owner: %s", surface.ID)
+		}
+		next[surface.ID] = nativeOwner{generation: surface.Generation, native: result.native, source: surface.Source}
+		applied = append(applied, AppliedSurface{
+			ID: surface.ID, Generation: surface.Generation, Frame: surface.Frame,
+			Visible: surface.Visible, Alpha: surface.Alpha, Layer: surface.Layer,
+		})
+	}
+	backend.owners = next
+	return applied, nil
 }
 
 func planNativeBatch(current map[string]nativeOwner, snapshot Snapshot) []nativeOperation {
@@ -46,7 +106,10 @@ func planNativeBatch(current map[string]nativeOwner, snapshot Snapshot) []native
 			)
 			continue
 		}
-		operations = append(operations, nativeOperation{action: nativeUpdate, surface: surface, native: owner.native})
+		operations = append(operations, nativeOperation{
+			action: nativeUpdate, surface: surface, native: owner.native,
+			navigate: owner.source != surface.Source,
+		})
 	}
 
 	removed := make([]string, 0)

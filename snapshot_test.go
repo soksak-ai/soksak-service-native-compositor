@@ -1,10 +1,14 @@
 package nativesurface
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
 
 func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T) {
 	backend := &recordingBackend{}
-	service := NewService(func() uintptr { return 99 }, backend)
+	window := byte(1)
+	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
 	first := Snapshot{
 		Sequence: 1,
 		Surfaces: []Surface{
@@ -34,7 +38,8 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 }
 
 func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
-	service := NewService(func() uintptr { return 99 }, &recordingBackend{})
+	window := byte(1)
+	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, &recordingBackend{})
 	_, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{
 		{ID: "same", Generation: 1, Kind: BrowserSurface, Frame: Frame{Width: 10, Height: 10}},
 		{ID: "same", Generation: 2, Kind: BrowserSurface, Frame: Frame{Width: 10, Height: 10}},
@@ -48,7 +53,7 @@ type recordingBackend struct {
 	snapshots []Snapshot
 }
 
-func (backend *recordingBackend) Apply(_ uintptr, snapshot Snapshot) ([]AppliedSurface, error) {
+func (backend *recordingBackend) Apply(_ unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
 	backend.snapshots = append(backend.snapshots, snapshot)
 	result := make([]AppliedSurface, len(snapshot.Surfaces))
 	for index, surface := range snapshot.Surfaces {
