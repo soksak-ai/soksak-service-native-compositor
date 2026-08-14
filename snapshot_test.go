@@ -52,7 +52,7 @@ func (backend *recordingBackend) Apply(_ uintptr, snapshot Snapshot) ([]AppliedS
 	backend.snapshots = append(backend.snapshots, snapshot)
 	result := make([]AppliedSurface, len(snapshot.Surfaces))
 	for index, surface := range snapshot.Surfaces {
-		result[index] = AppliedSurface{ID: surface.ID, Generation: surface.Generation, Frame: surface.Frame, Visible: surface.Visible}
+		result[index] = AppliedSurface{ID: surface.ID, Generation: surface.Generation, Frame: surface.Frame, Visible: surface.Visible, Alpha: surface.Alpha, Layer: surface.Layer}
 	}
 	return result, nil
 }

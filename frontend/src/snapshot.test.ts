@@ -12,8 +12,8 @@ describe("declarative native surface inventory", () => {
     expect(collectNativeSurfaceSnapshot(elements, 7)).toEqual({
       sequence: 7,
       surfaces: [
-        { id: "left", generation: 2, kind: "browser", frame: { x: 0, y: 0, width: 400, height: 600 }, visible: true, source: { url: "https://example.com/left" } },
-        { id: "right", generation: 1, kind: "browser", frame: { x: 400, y: 0, width: 400, height: 600 }, visible: true, source: { url: "https://example.com/right" } },
+        { id: "left", generation: 2, kind: "browser", frame: { x: 0, y: 0, width: 400, height: 600 }, visible: true, alpha: 1, layer: 10, source: { url: "https://example.com/left" } },
+        { id: "right", generation: 1, kind: "browser", frame: { x: 400, y: 0, width: 400, height: 600 }, visible: true, alpha: 1, layer: 20, source: { url: "https://example.com/right" } },
       ],
     });
   });
@@ -34,6 +34,7 @@ function declaration(id: string, generation: number, rect: { left: number; top: 
       nativeSurfaceId: id,
       nativeGeneration: String(generation),
       nativeUrl: `https://example.com/${id}`,
+      nativeLayer: id === "left" ? "10" : "20",
     },
     isConnected: true,
     getBoundingClientRect: () => rect,
