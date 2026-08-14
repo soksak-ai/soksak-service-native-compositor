@@ -24,6 +24,26 @@ function deferred() {
 }
 
 describe("native surface observer", () => {
+  it("does not replace resize ownership for geometry-only mutations", async () => {
+    const element = declaration("browser", () => 0);
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
+    let resizeStarts = 0;
+    let resizeStops = 0;
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      observeMutations: (callback) => { mutation = callback; return () => undefined; },
+      observeResizes: () => { resizeStarts++; return () => { resizeStops++; }; },
+      schedule: queueMicrotask,
+    }, async (snapshot) => ({ sequence: snapshot.sequence, accepted: true, surfaces: [] }));
+
+    await Promise.resolve();
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    expect(resizeStarts).toBe(1);
+    expect(resizeStops).toBe(0);
+    controller.stop();
+  });
+
   it("calls the host microtask scheduler without changing its receiver", () => {
     const receivers: unknown[] = [];
     let called = 0;
