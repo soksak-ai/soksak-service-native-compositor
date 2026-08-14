@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { startNativeSurfaceObserver, type NativeSurfaceObserverRuntime } from "./observer";
+import { nativeSurfaceDOMRuntime, startNativeSurfaceObserver, type NativeSurfaceObserverRuntime } from "./observer";
 import type { NativeSurfaceDeclaration, NativeSurfaceSnapshot } from "./snapshot";
 
 function declaration(id: string, left: () => number): NativeSurfaceDeclaration {
@@ -24,6 +24,19 @@ function deferred() {
 }
 
 describe("native surface observer", () => {
+  it("calls the host microtask scheduler without changing its receiver", () => {
+    const receivers: unknown[] = [];
+    let called = 0;
+    const hostSchedule = function (this: unknown, callback: () => void) {
+      receivers.push(this);
+      callback();
+    };
+    const runtime = nativeSurfaceDOMRuntime({} as ParentNode, hostSchedule);
+    runtime.schedule(() => { called++; });
+    expect(receivers).toEqual([undefined]);
+    expect(called).toBe(1);
+  });
+
   it("serializes whole inventories and coalesces bursts to the latest layout", async () => {
     let x = 0;
     const element = declaration("browser", () => x);
