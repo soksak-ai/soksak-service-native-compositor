@@ -2,7 +2,7 @@ export type NativeSurfaceFrame = { x: number; y: number; width: number; height: 
 export type NativeSurface = {
   id: string;
   generation: number;
-  kind: "browser";
+  kind: string;
   frame: NativeSurfaceFrame;
   visible: boolean;
   alpha: number;
@@ -42,7 +42,7 @@ export function collectNativeSurfaceSnapshot(
     if (source === null || Array.isArray(source) || Object.values(source).some((value) => typeof value !== "string")) {
       throw new Error(`native surface source is invalid: ${id || "missing"}`);
     }
-    if (kind !== "browser") throw new Error(`unsupported native surface kind: ${kind ?? "missing"}`);
+    if (!kind) throw new Error("native surface kind is required");
     if (!id) throw new Error("native surface id is required");
     if (seen.has(id)) throw new Error(`duplicate native surface id: ${id}`);
     if (!Number.isSafeInteger(generation) || generation <= 0) {

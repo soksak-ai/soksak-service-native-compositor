@@ -90,7 +90,10 @@ export function startNativeSurfaceObserver(
 
 const declarationSelector = "[data-wails-native-surface]";
 
-export function nativeSurfaceDOMRuntime(root: ParentNode = document): NativeSurfaceObserverRuntime {
+export function nativeSurfaceDOMRuntime(
+  root: ParentNode = document,
+  scheduleMicrotask: (callback: () => void) => void = queueMicrotask,
+): NativeSurfaceObserverRuntime {
   return {
     declarations: () => Array.from(root.querySelectorAll<HTMLElement>(declarationSelector)),
     observeMutations(callback) {
@@ -112,6 +115,6 @@ export function nativeSurfaceDOMRuntime(root: ParentNode = document): NativeSurf
       for (const declaration of declarations) observer.observe(declaration as unknown as Element);
       return () => observer.disconnect();
     },
-    schedule: queueMicrotask,
+    schedule: (callback) => scheduleMicrotask(callback),
   };
 }
