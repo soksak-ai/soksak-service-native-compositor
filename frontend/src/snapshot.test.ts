@@ -25,12 +25,17 @@ describe("declarative native surface inventory", () => {
     ];
     expect(() => collectNativeSurfaceSnapshot(elements, 1)).toThrow("duplicate native surface id: same");
   });
+
+  it("keeps project-defined native surface kinds opaque", () => {
+    const element = declaration("custom", 1, { left: 0, top: 0, width: 10, height: 10 }, "project-native-kind");
+    expect(collectNativeSurfaceSnapshot([element], 1).surfaces[0].kind).toBe("project-native-kind");
+  });
 });
 
-function declaration(id: string, generation: number, rect: { left: number; top: number; width: number; height: number }) {
+function declaration(id: string, generation: number, rect: { left: number; top: number; width: number; height: number }, kind = "browser") {
   return {
     dataset: {
-      wailsNativeSurface: "browser",
+      wailsNativeSurface: kind,
       nativeSurfaceId: id,
       nativeGeneration: String(generation),
       nativeSource: JSON.stringify({ url: `https://example.com/${id}` }),
