@@ -63,11 +63,14 @@ type Service struct {
 	window  func() unsafe.Pointer
 	backend Backend
 	latest  Receipt
+	stopped bool
 }
 
 func NewService(window func() unsafe.Pointer, backend Backend) *Service {
 	return &Service{window: window, backend: backend}
 }
+
+func (service *Service) ServiceName() string { return "wails-service-native-compositor" }
 
 func validFrame(frame Frame) bool {
 	values := []float64{frame.X, frame.Y, frame.Width, frame.Height}
@@ -111,6 +114,9 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if service.stopped {
+		return Receipt{}, fmt.Errorf("native surface service is shutting down")
+	}
 	if snapshot.Sequence <= service.latest.Sequence {
 		stale := service.latest
 		stale.Accepted = false
@@ -135,4 +141,35 @@ func (service *Service) Status() Receipt {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return service.latest
+}
+
+func (service *Service) ServiceShutdown() error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.stopped {
+		return nil
+	}
+	service.stopped = true
+	if service.window == nil || service.window() == nil {
+		if len(service.latest.Surfaces) == 0 {
+			return nil
+		}
+		return fmt.Errorf("native surface window is unavailable during shutdown")
+	}
+	if service.backend == nil {
+		if len(service.latest.Surfaces) == 0 {
+			return nil
+		}
+		return fmt.Errorf("native surface backend is unavailable during shutdown")
+	}
+	sequence := service.latest.Sequence + 1
+	applied, err := service.backend.Apply(service.window(), Snapshot{Sequence: sequence})
+	if err != nil {
+		return err
+	}
+	if len(applied) != 0 {
+		return fmt.Errorf("native surface shutdown inventory is not empty: %d", len(applied))
+	}
+	service.latest = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
+	return nil
 }
