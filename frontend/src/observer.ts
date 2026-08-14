@@ -7,9 +7,10 @@ export type NativeSurfaceReceipt = {
 };
 
 export type NativeSurfaceCommit = (snapshot: NativeSurfaceSnapshot) => Promise<NativeSurfaceReceipt>;
+export type NativeSurfaceMutation = { inventoryChanged: boolean };
 export type NativeSurfaceObserverRuntime = {
   declarations(): Iterable<NativeSurfaceDeclaration>;
-  observeMutations(callback: () => void): () => void;
+  observeMutations(callback: (mutation: NativeSurfaceMutation) => void): () => void;
   observeResizes(declarations: Iterable<NativeSurfaceDeclaration>, callback: () => void): () => void;
   schedule(callback: () => void): void;
 };
@@ -69,9 +70,9 @@ export function startNativeSurfaceObserver(
   };
 
   refreshResizeOwner();
-  const stopMutation = runtime.observeMutations(() => {
+  const stopMutation = runtime.observeMutations((mutation) => {
     if (stopped) return;
-    refreshResizeOwner();
+    if (mutation.inventoryChanged) refreshResizeOwner();
     schedule();
   });
   schedule();
@@ -97,7 +98,26 @@ export function nativeSurfaceDOMRuntime(
   return {
     declarations: () => Array.from(root.querySelectorAll<HTMLElement>(declarationSelector)),
     observeMutations(callback) {
-      const observer = new MutationObserver(callback);
+      const hasDeclaration = (node: Node) => node instanceof Element
+        && (node.matches(declarationSelector) || node.querySelector(declarationSelector) !== null);
+      const observer = new MutationObserver((records) => {
+        const relevant = records.filter((record) => {
+          if (!(record.target instanceof Element)) return false;
+          if (record.type === "attributes") {
+            return record.target.matches(declarationSelector) || record.target.querySelector(declarationSelector) !== null;
+          }
+          return record.target.matches(declarationSelector)
+            || record.target.querySelector(declarationSelector) !== null
+            || Array.from(record.addedNodes).some(hasDeclaration)
+            || Array.from(record.removedNodes).some(hasDeclaration);
+        });
+        if (relevant.length === 0) return;
+        callback({
+          inventoryChanged: relevant.some((record) => record.type === "childList"
+            && (Array.from(record.addedNodes).some(hasDeclaration) || Array.from(record.removedNodes).some(hasDeclaration)))
+            || relevant.some((record) => record.type === "attributes" && record.attributeName === "data-wails-native-surface"),
+        });
+      });
       observer.observe(root, {
         subtree: true,
         childList: true,

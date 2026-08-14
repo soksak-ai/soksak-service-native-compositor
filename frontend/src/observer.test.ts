@@ -60,7 +60,7 @@ describe("native surface observer", () => {
   it("serializes whole inventories and coalesces bursts to the latest layout", async () => {
     let x = 0;
     const element = declaration("browser", () => x);
-    let mutation!: () => void;
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
     let resize!: () => void;
     let release = deferred();
     const secondStarted = deferred();
@@ -83,7 +83,7 @@ describe("native surface observer", () => {
     x = 100;
     resize();
     x = 200;
-    mutation();
+    mutation({ inventoryChanged: true });
     await Promise.resolve();
     expect(commits).toHaveLength(1);
 
@@ -98,7 +98,7 @@ describe("native surface observer", () => {
 
   it("disconnects both event owners and publishes no later snapshot after stop", async () => {
     const element = declaration("browser", () => 0);
-    let mutation!: () => void;
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
     let resize!: () => void;
     let mutationStops = 0;
     let resizeStops = 0;
@@ -115,7 +115,7 @@ describe("native surface observer", () => {
 
     await Promise.resolve();
     controller.stop();
-    mutation();
+    mutation({ inventoryChanged: true });
     resize();
     await Promise.resolve();
     expect(mutationStops).toBe(1);
