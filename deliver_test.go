@@ -33,7 +33,9 @@ func (backend *deliveringBackend) Deliver(id string, message map[string]any) (ma
 
 func deliveringService(t *testing.T, backend *deliveringBackend, ids ...string) *Service {
 	t.Helper()
-	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(uintptr(1)) }, backend)
+	// A real allocation, not a made-up address — checkptr rejects arithmetic on an invented one.
+	window := unsafe.Pointer(new(byte))
+	service := NewService(func() unsafe.Pointer { return window }, backend)
 	surfaces := make([]Surface, 0, len(ids))
 	for _, id := range ids {
 		surfaces = append(surfaces, Surface{
