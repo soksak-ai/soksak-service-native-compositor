@@ -26,12 +26,17 @@ export type NativeSurfaceObserverController = {
 export function startNativeSurfaceObserver(
   runtime: NativeSurfaceObserverRuntime,
   commit: NativeSurfaceCommit,
+  // Where the sequence resumes. A backend that has already accepted commits refuses anything at or
+  // below what it holds, so an observer replacing an earlier one has to carry that number across.
+  // Starting from zero again makes every commit stale and the screen freezes at the last one that
+  // landed, with the refusals visible only to whoever reads the receipt.
+  sequenceFloor = 0,
 ): NativeSurfaceObserverController {
   let stopped = false;
   let scheduled = false;
   let running = false;
   let dirty = false;
-  let sequence = 0;
+  let sequence = sequenceFloor;
   let committedSequence = 0;
   let error: unknown = null;
   let stopResize: () => void = () => {};
