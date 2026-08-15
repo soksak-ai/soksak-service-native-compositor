@@ -88,6 +88,10 @@ type recordingBackend struct {
 	snapshots []Snapshot
 }
 
+func (backend *recordingBackend) Deliver(string, map[string]any) (map[string]any, error) {
+	return nil, nil
+}
+
 func (backend *recordingBackend) Apply(_ unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
 	backend.snapshots = append(backend.snapshots, snapshot)
 	result := make([]AppliedSurface, len(snapshot.Surfaces))

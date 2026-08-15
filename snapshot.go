@@ -54,6 +54,13 @@ type Receipt struct {
 
 type Backend interface {
 	Apply(window unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error)
+	// Deliver hands a message to whichever surface kind this backend implements.
+	//
+	// A browser is told to go back, a video surface to seek. Those verbs belong to the kind: a
+	// compositor that knew them would need editing for every kind added, which is the lock-in the
+	// substrate exists to prevent. So the message travels closed — the compositor validates who it
+	// is for and forwards it without reading it.
+	Deliver(id string, message map[string]any) (map[string]any, error)
 }
 
 type Service struct {
@@ -146,6 +153,34 @@ func (service *Service) Status() Receipt {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return service.latest
+}
+
+// Deliver forwards a message to the backend that owns a surface.
+//
+// The inventory is the only record of what exists, so a message for an id nobody declared is
+// refused here. Forwarding it would ask the backend to invent a surface, and a backend that obliges
+// holds one the compositor does not know about — the undeclared surface a ledger-only check never
+// sees, because the ledger is what it walks.
+func (service *Service) Deliver(id string, message map[string]any) (map[string]any, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.stopped {
+		return nil, fmt.Errorf("native surface %s cannot be driven: this compositor has shut down", id)
+	}
+	if service.backend == nil {
+		return nil, fmt.Errorf("native surface %s cannot be driven: there is no backend", id)
+	}
+	held := false
+	for _, surface := range service.latest.Surfaces {
+		if surface.ID == id {
+			held = true
+			break
+		}
+	}
+	if !held {
+		return nil, fmt.Errorf("native surface %s is not in the applied inventory at sequence %d", id, service.latest.Sequence)
+	}
+	return service.backend.Deliver(id, message)
 }
 
 func (service *Service) ServiceShutdown() error {
