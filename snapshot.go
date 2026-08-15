@@ -57,11 +57,12 @@ type Backend interface {
 }
 
 type Service struct {
-	mu      sync.Mutex
-	window  func() unsafe.Pointer
-	backend Backend
-	latest  Receipt
-	stopped bool
+	mu        sync.Mutex
+	window    func() unsafe.Pointer
+	backend   Backend
+	latest    Receipt
+	committed Committed
+	stopped   bool
 }
 
 func NewService(window func() unsafe.Pointer, backend Backend) *Service {
@@ -128,10 +129,16 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	}
 	applied, err := service.backend.Apply(service.window(), snapshot)
 	if err != nil {
+		// A refused attempt is recorded rather than forgotten. Without it the
+		// last healthy inventory keeps answering, and every reading reports a
+		// healthy native layer.
+		service.committed.Failure = err.Error()
+		service.committed.FailedSequence = snapshot.Sequence
 		return Receipt{}, err
 	}
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
 	service.latest = Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied}
+	service.committed = Committed{Declared: snapshot, Applied: service.latest}
 	return service.latest, nil
 }
 
@@ -170,4 +177,30 @@ func (service *Service) ServiceShutdown() error {
 	}
 	service.latest = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
 	return nil
+}
+
+// Declared is the inventory the document asked for on the last accepted commit,
+// and Applied is what the native layer reported back.
+//
+// Both halves come from one commit. A consumer that measured drift against the
+// applied half alone would compare a value with itself and read zero every
+// time; a consumer that read the declared half from the document would be
+// reading a later frame than the one that was applied.
+type Committed struct {
+	Declared Snapshot `json:"declared"`
+	Applied  Receipt  `json:"applied"`
+	// Failure is the backend's reason for the most recent attempt that did not
+	// land, empty when the last attempt landed. Without it a backend that
+	// refuses every new inventory keeps answering with the last healthy one,
+	// and every reading reports a healthy layer.
+	Failure string `json:"failure"`
+	// FailedSequence is the sequence of that attempt.
+	FailedSequence uint64 `json:"failedSequence"`
+}
+
+// Latest answers both halves of the last commit.
+func (service *Service) Latest() Committed {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.committed
 }
