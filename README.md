@@ -29,7 +29,12 @@ The frontend package observes declarations with `MutationObserver` and
 The Go service exposes:
 
 - `Commit(Snapshot) (Receipt, error)` — the only native writer;
-- `Status() Receipt` — the latest accepted applied inventory.
+- `Status(window) Receipt` — one window's latest accepted applied inventory;
+- `Latest(window) Composition` — one window's last commit read as a comparison:
+  the declared rectangle, the applied one, and the difference per surface, plus
+  the surfaces only one half holds and the reason the last attempt did not land.
+  Both halves come from that one commit, which is what makes the difference a
+  subtraction rather than two readings taken at two moments.
 
 A snapshot with a stale sequence is rejected without reaching the injected
 backend. The backend returns the complete applied inventory in one receipt.

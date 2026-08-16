@@ -113,8 +113,8 @@ func TestAReadingAnswersForOneWindow(t *testing.T) {
 	if held := service.Status("win-a").Surfaces; len(held) != 1 {
 		t.Errorf("the declaring window answers %d surfaces, not 1", len(held))
 	}
-	if declared := service.Latest("main").Declared.Surfaces; len(declared) != 0 {
-		t.Errorf("the orchestrator's last commit holds %d surfaces; it made none", len(declared))
+	if composed := service.Latest("main").Surfaces; len(composed) != 0 {
+		t.Errorf("the orchestrator's last commit holds %d surfaces; it made none", len(composed))
 	}
 }
 

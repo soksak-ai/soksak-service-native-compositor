@@ -100,7 +100,7 @@ type Service struct {
 	windows   func(name string) unsafe.Pointer
 	backend   Backend
 	latest    map[string]Receipt
-	committed map[string]Committed
+	committed map[string]windowCommit
 	stopped   bool
 }
 
@@ -109,7 +109,7 @@ func NewService(windows func(name string) unsafe.Pointer, backend Backend) *Serv
 		windows:   windows,
 		backend:   backend,
 		latest:    map[string]Receipt{},
-		committed: map[string]Committed{},
+		committed: map[string]windowCommit{},
 	}
 }
 
@@ -194,8 +194,8 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		// last healthy inventory keeps answering, and every reading reports a
 		// healthy native layer.
 		failed := service.committed[snapshot.Window]
-		failed.Failure = err.Error()
-		failed.FailedSequence = snapshot.Sequence
+		failed.failure = err.Error()
+		failed.failedSequence = snapshot.Sequence
 		service.committed[snapshot.Window] = failed
 		return Receipt{}, err
 	}
@@ -210,7 +210,7 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
 	receipt := Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied}
 	service.latest[snapshot.Window] = receipt
-	service.committed[snapshot.Window] = Committed{Declared: snapshot, Applied: receipt}
+	service.committed[snapshot.Window] = windowCommit{declared: snapshot, applied: receipt}
 	return receipt, nil
 }
 
@@ -280,32 +280,6 @@ func (service *Service) ServiceShutdown() error {
 		service.latest[name] = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
 	}
 	return nil
-}
-
-// Declared is the inventory the document asked for on the last accepted commit,
-// and Applied is what the native layer reported back.
-//
-// Both halves come from one commit. A consumer that measured drift against the
-// applied half alone would compare a value with itself and read zero every
-// time; a consumer that read the declared half from the document would be
-// reading a later frame than the one that was applied.
-type Committed struct {
-	Declared Snapshot `json:"declared"`
-	Applied  Receipt  `json:"applied"`
-	// Failure is the backend's reason for the most recent attempt that did not
-	// land, empty when the last attempt landed. Without it a backend that
-	// refuses every new inventory keeps answering with the last healthy one,
-	// and every reading reports a healthy layer.
-	Failure string `json:"failure"`
-	// FailedSequence is the sequence of that attempt.
-	FailedSequence uint64 `json:"failedSequence"`
-}
-
-// Latest answers both halves of one window's last commit.
-func (service *Service) Latest(window string) Committed {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	return service.committed[window]
 }
 
 // Windows names every window this service has accepted a commit for, sorted.
