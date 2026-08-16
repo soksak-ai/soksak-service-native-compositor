@@ -249,37 +249,80 @@ func (service *Service) Deliver(id string, message map[string]any) (map[string]a
 }
 
 func (service *Service) ServiceShutdown() error {
+	_, _, err := service.Drain()
+	return err
+}
+
+// Drain takes every surface down and answers how many came down, how many are
+// still held, and what stopped it.
+//
+// Two numbers because they are two claims. "Four came down" and "none are left"
+// are different facts, and the second is the one that matters: a surface still
+// held when the process exits is a native child outliving its parent. A drain
+// that worked and reported nothing could not be part of the receipt
+// `app_shutdown_prepare` answers, which is why the command that quits the
+// application was declared unserved (measured 2026-08-16: `sok
+// app.shutdown.commit` answered INTERNAL).
+//
+// Idempotent, and a second call answers zero: a count that repeated itself
+// would report work that did not happen.
+//
+// Every window is emptied, and a window that held nothing needs no window
+// handle to be emptied — a drain that refused on an already-closed window would
+// leave the windows after it in the map still holding surfaces.
+func (service *Service) Drain() (drained int, remaining int, err error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.stopped {
-		return nil
+		return 0, service.heldLocked(), nil
 	}
 	service.stopped = true
-	// Every window is emptied, and a window that held nothing needs no window
-	// handle to be emptied — a shutdown that refused on an already-closed
-	// window would leave the windows after it in the map still holding surfaces.
-	for name, receipt := range service.latest {
+
+	// Sorted, so two runs of one shutdown empty in the same order and a failure
+	// names the same window twice rather than a different one each time.
+	names := make([]string, 0, len(service.latest))
+	for name := range service.latest {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		receipt := service.latest[name]
 		if len(receipt.Surfaces) == 0 {
 			continue
 		}
 		handle := service.window(name)
 		if handle == nil {
-			return fmt.Errorf("native surface window %s is unavailable during shutdown", name)
+			return drained, service.heldLocked(),
+				fmt.Errorf("native surface window %s is unavailable during shutdown", name)
 		}
 		if service.backend == nil {
-			return fmt.Errorf("native surface backend is unavailable during shutdown")
+			return drained, service.heldLocked(),
+				fmt.Errorf("native surface backend is unavailable during shutdown")
 		}
 		sequence := receipt.Sequence + 1
-		applied, err := service.backend.Apply(handle, Snapshot{Window: name, Sequence: sequence})
-		if err != nil {
-			return err
+		applied, applyErr := service.backend.Apply(handle, Snapshot{Window: name, Sequence: sequence})
+		if applyErr != nil {
+			return drained, service.heldLocked(), applyErr
 		}
 		if len(applied) != 0 {
-			return fmt.Errorf("native surface shutdown inventory for %s is not empty: %d", name, len(applied))
+			return drained, service.heldLocked(),
+				fmt.Errorf("native surface shutdown inventory for %s is not empty: %d", name, len(applied))
 		}
+		drained += len(receipt.Surfaces)
 		service.latest[name] = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
 	}
-	return nil
+	return drained, service.heldLocked(), nil
+}
+
+// heldLocked counts the surfaces still in every window's applied inventory. The
+// caller holds the lock.
+func (service *Service) heldLocked() int {
+	held := 0
+	for _, receipt := range service.latest {
+		held += len(receipt.Surfaces)
+	}
+	return held
 }
 
 // Windows names every window this service has accepted a commit for, sorted.
