@@ -34,7 +34,7 @@ describe("native surface observer", () => {
       observeMutations: (callback) => { mutation = callback; return () => undefined; },
       observeResizes: () => { resizeStarts++; return () => { resizeStops++; }; },
       schedule: queueMicrotask,
-    }, async (snapshot) => ({ sequence: snapshot.sequence, accepted: true, surfaces: [] }));
+    }, async (snapshot) => ({ sequence: snapshot.sequence, accepted: true, surfaces: [] }), "win-a");
 
     await Promise.resolve();
     mutation({ inventoryChanged: false });
@@ -76,7 +76,7 @@ describe("native surface observer", () => {
       if (commits.length === 2) secondStarted.resolve();
       await release.promise;
       return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
-    });
+    }, "win-a");
 
     await Promise.resolve();
     expect(commits).toHaveLength(1);
@@ -111,7 +111,7 @@ describe("native surface observer", () => {
     }, async (snapshot) => {
       commits.push(snapshot);
       return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
-    });
+    }, "win-a");
 
     await Promise.resolve();
     controller.stop();

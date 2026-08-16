@@ -33,6 +33,12 @@ type Surface struct {
 }
 
 type Snapshot struct {
+	// Window names the window whose document declared these surfaces.
+	//
+	// A surface is attached to one window's content view and its frame is in that document's
+	// coordinates. Without the name a host with two windows attaches every surface to whichever
+	// one it happened to hand over, and the frames are read against the wrong box.
+	Window   string    `json:"window"`
 	Sequence uint64    `json:"sequence"`
 	Surfaces []Surface `json:"surfaces"`
 }
@@ -44,6 +50,23 @@ type AppliedSurface struct {
 	Visible    bool    `json:"visible"`
 	Alpha      float64 `json:"alpha"`
 	Layer      int     `json:"layer"`
+	// Window is the window the backend read this surface out of after
+	// attaching it — not the one it was told to use. A backend fills it from
+	// the native object; the compositor compares.
+	//
+	// Never serialised. A page has no use for a native handle, and one on the
+	// wire is a value a caller can be tempted to send back.
+	Window unsafe.Pointer `json:"-"`
+	// Misparented reports that the surface is in a different window from the
+	// one that declared it. The compositor sets it; a backend's own value is
+	// overwritten.
+	//
+	// Every other number here is a fact about a rectangle inside some window,
+	// so all of them read correct while the rectangle sits in a window nobody
+	// is looking at. Measured 2026-08-16: declared and applied frames agreed to
+	// zero drift, visible was true, alpha was 1, and the pane on screen was
+	// empty.
+	Misparented bool `json:"misparented"`
 }
 
 type Receipt struct {
@@ -63,17 +86,39 @@ type Backend interface {
 	Deliver(id string, message map[string]any) (map[string]any, error)
 }
 
+// Service places declared surfaces in the windows that declared them.
+//
+// State is per window, all of it. One window's sequence counter, inventory and
+// last commit say nothing about another's: a shared counter answers the second
+// window's first commit as stale behind the first window's tenth, and a shared
+// inventory answers a question about one window with every window's surfaces.
 type Service struct {
-	mu        sync.Mutex
-	window    func() unsafe.Pointer
+	mu sync.Mutex
+	// windows resolves a window name to its native handle. Nil, or an unknown
+	// name, is "that window is not ready" — which is not the same as a window
+	// holding no surfaces.
+	windows   func(name string) unsafe.Pointer
 	backend   Backend
-	latest    Receipt
-	committed Committed
+	latest    map[string]Receipt
+	committed map[string]Committed
 	stopped   bool
 }
 
-func NewService(window func() unsafe.Pointer, backend Backend) *Service {
-	return &Service{window: window, backend: backend}
+func NewService(windows func(name string) unsafe.Pointer, backend Backend) *Service {
+	return &Service{
+		windows:   windows,
+		backend:   backend,
+		latest:    map[string]Receipt{},
+		committed: map[string]Committed{},
+	}
+}
+
+// window answers one window's handle, or nil when it cannot be resolved.
+func (service *Service) window(name string) unsafe.Pointer {
+	if service.windows == nil {
+		return nil
+	}
+	return service.windows(name)
 }
 
 func (service *Service) ServiceName() string { return "wails-service-native-compositor" }
@@ -89,6 +134,12 @@ func validFrame(frame Frame) bool {
 }
 
 func validateSnapshot(snapshot Snapshot) error {
+	// An unnamed window is refused rather than defaulted. A default sends every
+	// surface to one window, which is the shape that put a workspace window's
+	// browser inside an orchestrator and reported success.
+	if snapshot.Window == "" {
+		return fmt.Errorf("native surface snapshot names no window")
+	}
 	if snapshot.Sequence == 0 {
 		return fmt.Errorf("native surface snapshot sequence must be positive")
 	}
@@ -123,36 +174,51 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if service.stopped {
 		return Receipt{}, fmt.Errorf("native surface service is shutting down")
 	}
-	if snapshot.Sequence <= service.latest.Sequence {
-		stale := service.latest
+	// This window's counter. A counter shared with other windows answers this
+	// window's first commit as stale and leaves it without surfaces for good.
+	if snapshot.Sequence <= service.latest[snapshot.Window].Sequence {
+		stale := service.latest[snapshot.Window]
 		stale.Accepted = false
 		return stale, nil
 	}
-	if service.window == nil || service.window() == nil {
-		return Receipt{}, fmt.Errorf("native surface window is not ready")
+	handle := service.window(snapshot.Window)
+	if handle == nil {
+		return Receipt{}, fmt.Errorf("native surface window %s is not ready", snapshot.Window)
 	}
 	if service.backend == nil {
 		return Receipt{}, fmt.Errorf("native surface backend is not configured")
 	}
-	applied, err := service.backend.Apply(service.window(), snapshot)
+	applied, err := service.backend.Apply(handle, snapshot)
 	if err != nil {
 		// A refused attempt is recorded rather than forgotten. Without it the
 		// last healthy inventory keeps answering, and every reading reports a
 		// healthy native layer.
-		service.committed.Failure = err.Error()
-		service.committed.FailedSequence = snapshot.Sequence
+		failed := service.committed[snapshot.Window]
+		failed.Failure = err.Error()
+		failed.FailedSequence = snapshot.Sequence
+		service.committed[snapshot.Window] = failed
 		return Receipt{}, err
 	}
+	// The one coordinate the backend cannot restate: which window the surface is
+	// actually in. A backend that names nothing is reported misparented rather
+	// than trusted — silence is what a backend that never learned to read the
+	// window back produces, and reading that as agreement is how this stayed
+	// invisible for as long as it did.
+	for index := range applied {
+		applied[index].Misparented = applied[index].Window != handle
+	}
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
-	service.latest = Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied}
-	service.committed = Committed{Declared: snapshot, Applied: service.latest}
-	return service.latest, nil
+	receipt := Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied}
+	service.latest[snapshot.Window] = receipt
+	service.committed[snapshot.Window] = Committed{Declared: snapshot, Applied: receipt}
+	return receipt, nil
 }
 
-func (service *Service) Status() Receipt {
+// Status answers one window's applied inventory.
+func (service *Service) Status(window string) Receipt {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	return service.latest
+	return service.latest[window]
 }
 
 // Deliver forwards a message to the backend that owns a surface.
@@ -170,17 +236,16 @@ func (service *Service) Deliver(id string, message map[string]any) (map[string]a
 	if service.backend == nil {
 		return nil, fmt.Errorf("native surface %s cannot be driven: there is no backend", id)
 	}
-	held := false
-	for _, surface := range service.latest.Surfaces {
-		if surface.ID == id {
-			held = true
-			break
+	// Every window's inventory. A surface id is unique across the application,
+	// so the window it is in is not something a caller has to know to drive it.
+	for _, receipt := range service.latest {
+		for _, surface := range receipt.Surfaces {
+			if surface.ID == id {
+				return service.backend.Deliver(id, message)
+			}
 		}
 	}
-	if !held {
-		return nil, fmt.Errorf("native surface %s is not in the applied inventory at sequence %d", id, service.latest.Sequence)
-	}
-	return service.backend.Deliver(id, message)
+	return nil, fmt.Errorf("native surface %s is in no window's applied inventory", id)
 }
 
 func (service *Service) ServiceShutdown() error {
@@ -190,27 +255,30 @@ func (service *Service) ServiceShutdown() error {
 		return nil
 	}
 	service.stopped = true
-	if service.window == nil || service.window() == nil {
-		if len(service.latest.Surfaces) == 0 {
-			return nil
+	// Every window is emptied, and a window that held nothing needs no window
+	// handle to be emptied — a shutdown that refused on an already-closed
+	// window would leave the windows after it in the map still holding surfaces.
+	for name, receipt := range service.latest {
+		if len(receipt.Surfaces) == 0 {
+			continue
 		}
-		return fmt.Errorf("native surface window is unavailable during shutdown")
-	}
-	if service.backend == nil {
-		if len(service.latest.Surfaces) == 0 {
-			return nil
+		handle := service.window(name)
+		if handle == nil {
+			return fmt.Errorf("native surface window %s is unavailable during shutdown", name)
 		}
-		return fmt.Errorf("native surface backend is unavailable during shutdown")
+		if service.backend == nil {
+			return fmt.Errorf("native surface backend is unavailable during shutdown")
+		}
+		sequence := receipt.Sequence + 1
+		applied, err := service.backend.Apply(handle, Snapshot{Window: name, Sequence: sequence})
+		if err != nil {
+			return err
+		}
+		if len(applied) != 0 {
+			return fmt.Errorf("native surface shutdown inventory for %s is not empty: %d", name, len(applied))
+		}
+		service.latest[name] = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
 	}
-	sequence := service.latest.Sequence + 1
-	applied, err := service.backend.Apply(service.window(), Snapshot{Sequence: sequence})
-	if err != nil {
-		return err
-	}
-	if len(applied) != 0 {
-		return fmt.Errorf("native surface shutdown inventory is not empty: %d", len(applied))
-	}
-	service.latest = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
 	return nil
 }
 
@@ -233,9 +301,24 @@ type Committed struct {
 	FailedSequence uint64 `json:"failedSequence"`
 }
 
-// Latest answers both halves of the last commit.
-func (service *Service) Latest() Committed {
+// Latest answers both halves of one window's last commit.
+func (service *Service) Latest(window string) Committed {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	return service.committed
+	return service.committed[window]
+}
+
+// Windows names every window this service has accepted a commit for, sorted.
+//
+// A reader that has to know the window names in advance cannot sweep, and a
+// surface in a window nobody thought to ask about is the one that goes missing.
+func (service *Service) Windows() []string {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	names := make([]string, 0, len(service.latest))
+	for name := range service.latest {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

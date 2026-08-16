@@ -10,7 +10,8 @@ describe("declarative native surface inventory", () => {
       declaration("left", 2, { left: 0, top: 0, width: 400, height: 600 }),
     ];
 
-    expect(collectNativeSurfaceSnapshot(elements, 7)).toEqual({
+    expect(collectNativeSurfaceSnapshot(elements, 7, "win-a")).toEqual({
+      window: "win-a",
       sequence: 7,
       surfaces: [
         { id: "left", generation: 2, kind: "browser", frame: { x: 0, y: 0, width: 400, height: 600 }, visible: true, alpha: 1, layer: 10, source: { url: "https://example.com/left" } },
@@ -24,12 +25,12 @@ describe("declarative native surface inventory", () => {
       declaration("same", 1, { left: 0, top: 0, width: 10, height: 10 }),
       declaration("same", 2, { left: 10, top: 0, width: 10, height: 10 }),
     ];
-    expect(() => collectNativeSurfaceSnapshot(elements, 1)).toThrow("duplicate native surface id: same");
+    expect(() => collectNativeSurfaceSnapshot(elements, 1, "win-a")).toThrow("duplicate native surface id: same");
   });
 
   it("keeps project-defined native surface kinds opaque", () => {
     const element = declaration("custom", 1, { left: 0, top: 0, width: 10, height: 10 }, "project-native-kind");
-    expect(collectNativeSurfaceSnapshot([element], 1).surfaces[0].kind).toBe("project-native-kind");
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-a").surfaces[0].kind).toBe("project-native-kind");
   });
 });
 
@@ -49,3 +50,20 @@ function declaration(id: string, generation: number, rect: { left: number; top: 
     getBoundingClientRect: () => rect,
   };
 }
+
+// A surface is attached to one window's content view and its frame is in that
+// document's coordinates. Measured 2026-08-16: the snapshot carried no window,
+// the host resolved one handle for every commit, and a workspace window's
+// browser was created inside the orchestrator — 1128×718 inside a 999×617
+// window — while every reading reported it applied with zero drift.
+describe("the window a snapshot was collected in", () => {
+  it("names it", () => {
+    const element = declaration("only", 1, { left: 0, top: 0, width: 10, height: 10 });
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-b").window).toBe("win-b");
+  });
+
+  it("refuses an unnamed one rather than defaulting it", () => {
+    const element = declaration("only", 1, { left: 0, top: 0, width: 10, height: 10 });
+    expect(() => collectNativeSurfaceSnapshot([element], 1, "")).toThrow("native surface snapshot names no window");
+  });
+});

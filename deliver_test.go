@@ -35,7 +35,7 @@ func deliveringService(t *testing.T, backend *deliveringBackend, ids ...string) 
 	t.Helper()
 	// A real allocation, not a made-up address — checkptr rejects arithmetic on an invented one.
 	window := unsafe.Pointer(new(byte))
-	service := NewService(func() unsafe.Pointer { return window }, backend)
+	service := NewService(func(string) unsafe.Pointer { return window }, backend)
 	surfaces := make([]Surface, 0, len(ids))
 	for _, id := range ids {
 		surfaces = append(surfaces, Surface{
@@ -44,7 +44,7 @@ func deliveringService(t *testing.T, backend *deliveringBackend, ids ...string) 
 			Source: map[string]string{"url": "https://example.com"},
 		})
 	}
-	if _, err := service.Commit(Snapshot{Sequence: 1, Surfaces: surfaces}); err != nil {
+	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: surfaces}); err != nil {
 		t.Fatalf("committing the fixture inventory: %v", err)
 	}
 	return service

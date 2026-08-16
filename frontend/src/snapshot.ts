@@ -9,7 +9,17 @@ export type NativeSurface = {
   layer: number;
   source: Record<string, string>;
 };
-export type NativeSurfaceSnapshot = { sequence: number; surfaces: NativeSurface[] };
+/**
+ * One window's complete declared inventory.
+ *
+ * `window` names the window whose document declared these surfaces. A surface is attached to that
+ * window's content view and its frame is in that document's coordinates, so a snapshot without the
+ * name leaves the host to resolve whichever window it happens to hold. Measured 2026-08-16: a
+ * workspace window's browser was created inside the orchestrator — 1128×718 inside a 999×617
+ * window — and declared-versus-applied still read zero drift, because both halves came back from
+ * the same wrong window.
+ */
+export type NativeSurfaceSnapshot = { window: string; sequence: number; surfaces: NativeSurface[] };
 
 export type NativeSurfaceDeclaration = {
   dataset: DOMStringMap | Record<string, string | undefined>;
@@ -20,7 +30,13 @@ export type NativeSurfaceDeclaration = {
 export function collectNativeSurfaceSnapshot(
   declarations: Iterable<NativeSurfaceDeclaration>,
   sequence: number,
+  window: string,
 ): NativeSurfaceSnapshot {
+  // Refused, never defaulted. The Go half refuses it too, and a default here would answer that
+  // refusal with a name the document did not choose.
+  if (window === "") {
+    throw new Error("native surface snapshot names no window");
+  }
   if (!Number.isSafeInteger(sequence) || sequence <= 0) {
     throw new Error(`native surface snapshot sequence is invalid: ${sequence}`);
   }
@@ -70,5 +86,5 @@ export function collectNativeSurfaceSnapshot(
   }
 
   surfaces.sort((left, right) => left.id.localeCompare(right.id));
-  return { sequence, surfaces };
+  return { window, sequence, surfaces };
 }

@@ -26,6 +26,10 @@ export type NativeSurfaceObserverController = {
 export function startNativeSurfaceObserver(
   runtime: NativeSurfaceObserverRuntime,
   commit: NativeSurfaceCommit,
+  // The window this document is. One observer watches one document and every surface it finds
+  // belongs to that window; the application names it, because a package that reads the DOM cannot
+  // know which window the DOM is in.
+  window: string,
   // Where the sequence resumes. A backend that has already accepted commits refuses anything at or
   // below what it holds, so an observer replacing an earlier one has to carry that number across.
   // Starting from zero again makes every commit stale and the screen freezes at the last one that
@@ -57,7 +61,7 @@ export function startNativeSurfaceObserver(
     if (stopped || running || !dirty) return;
     dirty = false;
     running = true;
-    const snapshot = collectNativeSurfaceSnapshot(runtime.declarations(), ++sequence);
+    const snapshot = collectNativeSurfaceSnapshot(runtime.declarations(), ++sequence, window);
     try {
       const receipt = await commit(snapshot);
       if (receipt.accepted && receipt.sequence === snapshot.sequence) {

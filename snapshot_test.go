@@ -8,8 +8,9 @@ import (
 func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
 	first := Snapshot{
+		Window: "win-a",
 		Sequence: 1,
 		Surfaces: []Surface{
 			{ID: "surface-left", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"owner": "left"}},
@@ -39,8 +40,8 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 
 func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 	window := byte(1)
-	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, &recordingBackend{})
-	_, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, &recordingBackend{})
+	_, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{
 		{ID: "same", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
 		{ID: "same", Generation: 2, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
 	}})
@@ -52,8 +53,8 @@ func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
-	_, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{{
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	_, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "project-defined", Generation: 1, Kind: SurfaceKind("project-native-kind"),
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}})
@@ -65,8 +66,8 @@ func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func() unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
-	if _, err := service.Commit(Snapshot{Sequence: 1, Surfaces: []Surface{{
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "surface-1", Generation: 1, Kind: SurfaceKind("test-surface"),
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}}); err != nil {
@@ -78,7 +79,7 @@ func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	if len(backend.snapshots) != 2 || len(backend.snapshots[1].Surfaces) != 0 {
 		t.Fatalf("shutdown must remove every native surface in one empty inventory: %+v", backend.snapshots)
 	}
-	status := service.Status()
+	status := service.Status("win-a")
 	if !status.Accepted || status.Sequence != 2 || len(status.Surfaces) != 0 {
 		t.Fatalf("shutdown status must expose the applied empty inventory: %+v", status)
 	}
