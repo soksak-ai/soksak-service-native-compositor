@@ -88,7 +88,7 @@ func placementOf(t *testing.T, composition Composition, id string) Placement {
 func TestTheCompositionAnswersBothHalvesAndTheirDifference(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{shift: Frame{Y: 6}})
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 7, Surfaces: []Surface{{
-		ID: "surface-declared", Generation: 3, Kind: "browser", Layer: 10,
+		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 3, Kind: "browser", Layer: 10,
 		Frame: Frame{X: 10, Y: 20, Width: 300, Height: 200}, Visible: true, Alpha: 1,
 	}}}); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -98,7 +98,7 @@ func TestTheCompositionAnswersBothHalvesAndTheirDifference(t *testing.T) {
 	if composition.Sequence != 7 {
 		t.Errorf("the composition came from sequence %d, not the commit that produced it", composition.Sequence)
 	}
-	placement := placementOf(t, composition, "surface-declared")
+	placement := placementOf(t, composition, "browser.win-3ztbjd.tab-2trqyu")
 	if placement.Declared != (Frame{X: 10, Y: 20, Width: 300, Height: 200}) {
 		t.Errorf("declared is %+v, not what the document asked for", placement.Declared)
 	}
@@ -127,13 +127,13 @@ func TestTheCompositionAnswersBothHalvesAndTheirDifference(t *testing.T) {
 func TestAnExactApplicationIsZeroDifference(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{})
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
-		ID: "surface-declared", Generation: 1, Kind: "browser",
+		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{X: 4, Y: 8, Width: 100, Height: 50}, Visible: true, Alpha: 1,
 	}}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	placement := placementOf(t, service.Latest("win-a"), "surface-declared")
+	placement := placementOf(t, service.Latest("win-a"), "browser.win-3ztbjd.tab-2trqyu")
 	if placement.Drift == nil || *placement.Drift != (Frame{}) {
 		t.Errorf("drift is %v on a surface applied exactly where it was declared", placement.Drift)
 	}
@@ -142,14 +142,14 @@ func TestAnExactApplicationIsZeroDifference(t *testing.T) {
 // A declared surface the backend never reported is named rather than dropped. A
 // count that agreed while the screen did not is what this list prevents.
 func TestADeclarationTheBackendNeverAppliedIsNamed(t *testing.T) {
-	service := oneWindow(t, &driftingBackend{drop: "surface-dropped"})
+	service := oneWindow(t, &driftingBackend{drop: "browser.win-3ztbjd.tab-qwdqt6"})
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 2, Surfaces: []Surface{
 		{
-			ID: "surface-declared", Generation: 1, Kind: "browser",
+			ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 			Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 		},
 		{
-			ID: "surface-dropped", Generation: 1, Kind: "browser",
+			ID: "browser.win-3ztbjd.tab-qwdqt6", Generation: 1, Kind: "browser",
 			Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 		},
 	}}); err != nil {
@@ -157,10 +157,10 @@ func TestADeclarationTheBackendNeverAppliedIsNamed(t *testing.T) {
 	}
 
 	composition := service.Latest("win-a")
-	if len(composition.Unapplied) != 1 || composition.Unapplied[0] != "surface-dropped" {
+	if len(composition.Unapplied) != 1 || composition.Unapplied[0] != "browser.win-3ztbjd.tab-qwdqt6" {
 		t.Errorf("unapplied is %v, not the one declaration the backend never applied", composition.Unapplied)
 	}
-	if len(composition.Surfaces) != 1 || composition.Surfaces[0].ID != "surface-declared" {
+	if len(composition.Surfaces) != 1 || composition.Surfaces[0].ID != "browser.win-3ztbjd.tab-2trqyu" {
 		t.Errorf("the surfaces with both halves are %+v", composition.Surfaces)
 	}
 }
@@ -171,24 +171,24 @@ func TestADeclarationTheBackendNeverAppliedIsNamed(t *testing.T) {
 // to every check the application makes.
 func TestASurfaceNoDeclarationAskedForIsNamed(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{extra: &AppliedSurface{
-		ID: "surface-uninvited", Generation: 1, Layer: 4,
+		ID: "browser.win-3ztbjd.tab-k6jivs", Generation: 1, Layer: 4,
 		Frame: Frame{X: 5, Y: 5, Width: 20, Height: 20}, Visible: true, Alpha: 1,
 	}})
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 3, Surfaces: []Surface{{
-		ID: "surface-declared", Generation: 1, Kind: "browser",
+		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	uninvited := placementOf(t, service.Latest("win-a"), "surface-uninvited")
+	uninvited := placementOf(t, service.Latest("win-a"), "browser.win-3ztbjd.tab-k6jivs")
 	if !uninvited.Undeclared {
 		t.Error("a surface no declaration asked for is reported as an ordinary placement")
 	}
 	if uninvited.Applied != (Frame{X: 5, Y: 5, Width: 20, Height: 20}) {
 		t.Errorf("applied is %+v, not where the native layer reported it", uninvited.Applied)
 	}
-	if placementOf(t, service.Latest("win-a"), "surface-declared").Undeclared {
+	if placementOf(t, service.Latest("win-a"), "browser.win-3ztbjd.tab-2trqyu").Undeclared {
 		t.Error("a surface the document declared is reported undeclared")
 	}
 }
@@ -198,17 +198,17 @@ func TestASurfaceNoDeclarationAskedForIsNamed(t *testing.T) {
 // and answering zero would call a pane with no surface correct.
 func TestASurfaceWithOneHalfHasNoDifference(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{extra: &AppliedSurface{
-		ID: "surface-uninvited", Generation: 1,
+		ID: "browser.win-3ztbjd.tab-k6jivs", Generation: 1,
 		Frame: Frame{X: 5, Y: 5, Width: 20, Height: 20}, Visible: true, Alpha: 1,
 	}})
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
-		ID: "surface-declared", Generation: 1, Kind: "browser",
+		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	if drift := placementOf(t, service.Latest("win-a"), "surface-uninvited").Drift; drift != nil {
+	if drift := placementOf(t, service.Latest("win-a"), "browser.win-3ztbjd.tab-k6jivs").Drift; drift != nil {
 		t.Errorf("drift is %+v on a surface with nothing to subtract from", *drift)
 	}
 }
@@ -220,11 +220,11 @@ func TestASurfaceWithOneHalfHasNoDifference(t *testing.T) {
 func TestAMisparentedSurfaceIsCarriedIntoTheComposition(t *testing.T) {
 	var elsewhere byte
 	service := oneWindow(t, &misparentingBackend{putIn: unsafe.Pointer(&elsewhere)})
-	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("surface-declared")}}); err != nil {
+	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("browser.win-3ztbjd.tab-2trqyu")}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	placement := placementOf(t, service.Latest("win-a"), "surface-declared")
+	placement := placementOf(t, service.Latest("win-a"), "browser.win-3ztbjd.tab-2trqyu")
 	if !placement.Misparented {
 		t.Error("a surface put in another window is reported as correct")
 	}
@@ -240,7 +240,7 @@ func TestARefusedApplyIsCarriedIntoTheComposition(t *testing.T) {
 	backend := &driftingBackend{}
 	service := oneWindow(t, backend)
 	declaration := Snapshot{Window: "win-a", Sequence: 4, Surfaces: []Surface{{
-		ID: "surface-declared", Generation: 1, Kind: "browser",
+		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
 	}}}
 	if _, err := service.Commit(declaration); err != nil {
@@ -272,7 +272,7 @@ func TestTheCompositionIsOneWindowsOwn(t *testing.T) {
 		"win-a": unsafe.Pointer(&workspace),
 	}
 	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, &driftingBackend{})
-	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("surface-declared")}}); err != nil {
+	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("browser.win-3ztbjd.tab-2trqyu")}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
@@ -281,5 +281,38 @@ func TestTheCompositionIsOneWindowsOwn(t *testing.T) {
 	}
 	if held := service.Latest("win-a"); len(held.Surfaces) != 1 {
 		t.Errorf("the declaring window answers %d surfaces, not 1", len(held.Surfaces))
+	}
+}
+
+// A surface id is opaque to this service.
+//
+// The ids above are the shape the application issues, so the real value is what
+// the tests run on. This one is deliberately none of it: no delimiter the
+// application uses, no kind this service could recognise, and a length nothing
+// here bounds.
+//
+// The service stores, pairs and answers by identity alone — it parses no field
+// out of an id, and a compositor that did would need editing for every naming
+// decision the application above it makes.
+func TestASurfaceIdentityIsOpaqueToTheCompositor(t *testing.T) {
+	const foreign = "a surface named by somebody else/entirely::42"
+
+	service := oneWindow(t, &driftingBackend{})
+	if _, err := service.Commit(Snapshot{
+		Window: "win-a", Sequence: 1,
+		Surfaces: []Surface{{
+			ID: foreign, Generation: 1, Kind: "some-other-kind",
+			Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
+		}},
+	}); err != nil {
+		t.Fatalf("a foreign identity was refused: %v", err)
+	}
+
+	placement := placementOf(t, service.Latest("win-a"), foreign)
+	if placement.ID != foreign {
+		t.Errorf("the identity came back as %q, not the one committed", placement.ID)
+	}
+	if placement.Kind != "some-other-kind" {
+		t.Errorf("the kind came back as %q; a kind is the application's word", placement.Kind)
 	}
 }
