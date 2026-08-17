@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -73,6 +74,14 @@ type Receipt struct {
 	Sequence uint64           `json:"sequence"`
 	Accepted bool             `json:"accepted"`
 	Surfaces []AppliedSurface `json:"surfaces"`
+	// AppliedMs is how long the backend held this commit — the native work alone, without the
+	// bridge that carried the request or the wait for a thread that was busy with something else.
+	//
+	// A caller measuring a commit from the other side of the bridge measures both, and the two ask
+	// different questions: work the application does costs this, and time it spends waiting is the
+	// window being busy elsewhere. Measured 2026-08-17, a window stopped drawing for exactly as long
+	// as its commits took, and nothing could tell those two apart.
+	AppliedMs float64 `json:"appliedMs"`
 }
 
 type Backend interface {
@@ -188,7 +197,9 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if service.backend == nil {
 		return Receipt{}, fmt.Errorf("native surface backend is not configured")
 	}
+	startedAt := time.Now()
 	applied, err := service.backend.Apply(handle, snapshot)
+	appliedMs := float64(time.Since(startedAt).Microseconds()) / 1000
 	if err != nil {
 		// A refused attempt is recorded rather than forgotten. Without it the
 		// last healthy inventory keeps answering, and every reading reports a
@@ -208,7 +219,7 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		applied[index].Misparented = applied[index].Window != handle
 	}
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
-	receipt := Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied}
+	receipt := Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied, AppliedMs: appliedMs}
 	service.latest[snapshot.Window] = receipt
 	service.committed[snapshot.Window] = windowCommit{declared: snapshot, applied: receipt}
 	return receipt, nil
