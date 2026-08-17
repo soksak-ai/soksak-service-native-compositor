@@ -142,16 +142,31 @@ export function nativeSurfaceDOMRuntime(
   return {
     declarations: () => Array.from(root.querySelectorAll<HTMLElement>(declarationSelector)),
     observeMutations(callback) {
-      const hasDeclaration = (node: Node) => node instanceof Element
-        && (node.matches(declarationSelector) || node.querySelector(declarationSelector) !== null);
+      // An element is recognised by what it can answer, not by a global class. `node instanceof
+      // Element` reads a binding from whatever realm this module was loaded in, and a document from
+      // another one — a test environment, a second window — has its own: the check then throws
+      // `Element is not defined` inside a mutation callback, where the only trace is a run that
+      // failed with no test failing.
+      const asElement = (node: Node | null): Element | null => {
+        const candidate = node as Partial<Element> | null;
+        return typeof candidate?.matches === "function" && typeof candidate.querySelector === "function"
+          ? (node as Element)
+          : null;
+      };
+      const hasDeclaration = (node: Node) => {
+        const element = asElement(node);
+        return element !== null
+          && (element.matches(declarationSelector) || element.querySelector(declarationSelector) !== null);
+      };
       const observer = new MutationObserver((records) => {
         const relevant = records.filter((record) => {
-          if (!(record.target instanceof Element)) return false;
+          const target = asElement(record.target);
+          if (!target) return false;
           if (record.type === "attributes") {
-            return record.target.matches(declarationSelector) || record.target.querySelector(declarationSelector) !== null;
+            return target.matches(declarationSelector) || target.querySelector(declarationSelector) !== null;
           }
-          return record.target.matches(declarationSelector)
-            || record.target.querySelector(declarationSelector) !== null
+          return target.matches(declarationSelector)
+            || target.querySelector(declarationSelector) !== null
             || Array.from(record.addedNodes).some(hasDeclaration)
             || Array.from(record.removedNodes).some(hasDeclaration);
         });
