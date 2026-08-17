@@ -42,6 +42,17 @@ type Snapshot struct {
 	Window   string    `json:"window"`
 	Sequence uint64    `json:"sequence"`
 	Surfaces []Surface `json:"surfaces"`
+	// SentAtUnixMs is when the document handed this over, by its own wall clock.
+	//
+	// A receipt says how long the backend held the commit and a caller measures the whole
+	// round trip, and the difference between those two is time nobody could name. Measured
+	// 2026-08-17 in a window changing its layout: 40ms round trip, 0.2ms of native work, and
+	// no reading that said where the other 39.8 went. Stamped here, the crossing can be
+	// subtracted from the round trip and what is left is the bridge.
+	//
+	// Zero is a caller that does not stamp, and the receipt then reports no crossing rather
+	// than a number made from two clocks that never met.
+	SentAtUnixMs float64 `json:"sentAtUnixMs"`
 }
 
 type AppliedSurface struct {
@@ -82,6 +93,12 @@ type Receipt struct {
 	// window being busy elsewhere. Measured 2026-08-17, a window stopped drawing for exactly as long
 	// as its commits took, and nothing could tell those two apart.
 	AppliedMs float64 `json:"appliedMs"`
+	// CarriedMs is how long the commit took to reach the backend from the document that sent
+	// it — the bridge, the queue behind it, and whatever the main thread was doing instead.
+	//
+	// -1 when the caller stamped nothing. A caller that stamps gets the round trip split in
+	// two: this, and AppliedMs. What is left over is the answer's way back.
+	CarriedMs float64 `json:"carriedMs"`
 }
 
 type Backend interface {
@@ -197,6 +214,11 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if service.backend == nil {
 		return Receipt{}, fmt.Errorf("native surface backend is not configured")
 	}
+	// Stamped before the work, against the same wall clock the document used.
+	carriedMs := float64(-1)
+	if snapshot.SentAtUnixMs > 0 {
+		carriedMs = float64(time.Now().UnixNano())/1e6 - snapshot.SentAtUnixMs
+	}
 	startedAt := time.Now()
 	applied, err := service.backend.Apply(handle, snapshot)
 	appliedMs := float64(time.Since(startedAt).Microseconds()) / 1000
@@ -219,7 +241,13 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		applied[index].Misparented = applied[index].Window != handle
 	}
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
-	receipt := Receipt{Sequence: snapshot.Sequence, Accepted: true, Surfaces: applied, AppliedMs: appliedMs}
+	receipt := Receipt{
+		Sequence:  snapshot.Sequence,
+		Accepted:  true,
+		Surfaces:  applied,
+		AppliedMs: appliedMs,
+		CarriedMs: carriedMs,
+	}
 	service.latest[snapshot.Window] = receipt
 	service.committed[snapshot.Window] = windowCommit{declared: snapshot, applied: receipt}
 	return receipt, nil

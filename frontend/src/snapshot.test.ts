@@ -10,7 +10,14 @@ describe("declarative native surface inventory", () => {
       declaration("left", 2, { left: 0, top: 0, width: 400, height: 600 }),
     ];
 
-    expect(collectNativeSurfaceSnapshot(elements, 7, "win-a")).toEqual({
+    const before = Date.now();
+    const snapshot = collectNativeSurfaceSnapshot(elements, 7, "win-a");
+    // The stamp is what the receipt subtracts to say how long the crossing took, so it is a
+    // wall-clock reading taken here and not a field a caller fills in.
+    expect(snapshot.sentAtUnixMs).toBeGreaterThanOrEqual(before);
+    expect(snapshot.sentAtUnixMs).toBeLessThanOrEqual(Date.now());
+    expect(snapshot).toEqual({
+      sentAtUnixMs: snapshot.sentAtUnixMs,
       window: "win-a",
       sequence: 7,
       surfaces: [

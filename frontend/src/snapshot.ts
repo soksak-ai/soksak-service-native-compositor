@@ -19,7 +19,15 @@ export type NativeSurface = {
  * window — and declared-versus-applied still read zero drift, because both halves came back from
  * the same wrong window.
  */
-export type NativeSurfaceSnapshot = { window: string; sequence: number; surfaces: NativeSurface[] };
+export type NativeSurfaceSnapshot = {
+  window: string;
+  sequence: number;
+  surfaces: NativeSurface[];
+  /** When this document handed the commit over, by the wall clock. The receipt subtracts it
+   *  to say how long the crossing took — a round trip with nothing but the backend's own
+   *  time in it leaves the rest unaccounted for, and that rest was 39.8 of 40ms. */
+  sentAtUnixMs: number;
+};
 
 export type NativeSurfaceDeclaration = {
   dataset: DOMStringMap | Record<string, string | undefined>;
@@ -86,5 +94,5 @@ export function collectNativeSurfaceSnapshot(
   }
 
   surfaces.sort((left, right) => left.id.localeCompare(right.id));
-  return { window, sequence, surfaces };
+  return { window, sequence, surfaces, sentAtUnixMs: Date.now() };
 }
