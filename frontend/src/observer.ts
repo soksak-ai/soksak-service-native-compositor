@@ -130,6 +130,9 @@ export function startNativeSurfaceObserver(
  *  that wants the same elements would otherwise write the attribute name again, and the day it
  *  changes one of the two is quietly reading nothing. */
 export const nativeSurfaceDeclarationSelector = "[data-native-surface]";
+
+/** How long the move watch waits for a frame before measuring on the wall clock instead. */
+const WATCH_TICK_MS = 12;
 const declarationSelector = nativeSurfaceDeclarationSelector;
 
 export function nativeSurfaceDOMRuntime(
@@ -178,16 +181,23 @@ export function nativeSurfaceDOMRuntime(
     },
     // A move has no event. The engine animates a pane's position without writing a style and
     // without changing its size, so the only way to know a declared element has travelled is to
-    // measure it — once per frame, over the surfaces this window declares, which is a handful of
-    // rectangles. The callback fires only when one of them actually differs, so a still window
-    // commits nothing.
+    // measure it — over the surfaces this window declares, which is a handful of rectangles. The
+    // callback fires only when one of them actually differs, so a still window commits nothing.
+    //
+    // Two clocks, whichever comes first. The frame clock is the right one while the window is drawn
+    // at the display's rate, and a window nobody is looking at is not: measured 2026-08-17, a
+    // covered window drew every 33ms while its panes travelled continuously, and the declaration
+    // stood up to 32 points behind the element it declares. What a surface is being asked to follow
+    // is the element, not the frame it happens to be painted in.
     observeMoves(declarations, callback) {
       const watched = Array.from(declarations);
       if (watched.length === 0) return () => {};
       const view = (root as Document).defaultView ?? globalThis;
       const frame = view.requestAnimationFrame?.bind(view);
       const cancel = view.cancelAnimationFrame?.bind(view);
-      if (!frame) return () => {};
+      const later = view.setTimeout?.bind(view);
+      const stopLater = view.clearTimeout?.bind(view);
+      if (!frame || !later) return () => {};
       const last = new Map<NativeSurfaceDeclaration, string>();
       const placeOf = (declaration: NativeSurfaceDeclaration): string => {
         const rect = declaration.getBoundingClientRect();
@@ -196,6 +206,13 @@ export function nativeSurfaceDOMRuntime(
       for (const declaration of watched) last.set(declaration, placeOf(declaration));
       let stopped = false;
       let pending = 0;
+      let waiting: ReturnType<typeof setTimeout> | undefined;
+      const schedule = () => {
+        cancel?.(pending);
+        if (waiting !== undefined) stopLater?.(waiting);
+        pending = frame(tick);
+        waiting = later(tick, WATCH_TICK_MS);
+      };
       const tick = () => {
         if (stopped) return;
         let moved = false;
@@ -208,12 +225,13 @@ export function nativeSurfaceDOMRuntime(
           }
         }
         if (moved) callback();
-        pending = frame(tick);
+        schedule();
       };
-      pending = frame(tick);
+      schedule();
       return () => {
         stopped = true;
         cancel?.(pending);
+        if (waiting !== undefined) stopLater?.(waiting);
       };
     },
     schedule: (callback) => scheduleMicrotask(callback),

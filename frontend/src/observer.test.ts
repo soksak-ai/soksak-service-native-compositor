@@ -23,6 +23,11 @@ function framed(): ParentNode {
   const view = {
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 16) as unknown as number,
     cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+    // The watch runs on two clocks and cancels one when the other fires, so the stand-in window has
+    // to provide both. A window whose frame clock is throttled — one nobody is looking at — is
+    // exactly the case the second clock exists for.
+    setTimeout: (callback: () => void, ms: number) => setTimeout(callback, ms),
+    clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
   };
   return { querySelectorAll: () => [], defaultView: view } as unknown as ParentNode;
 }
