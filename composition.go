@@ -170,3 +170,44 @@ func difference(declared, applied Frame) Frame {
 		Height: applied.Height - declared.Height,
 	}
 }
+
+// SurfaceAt names the surface a point lands on, or "" for a point on none.
+//
+// A surface is composited above the document, so a click inside one is delivered to it and the page
+// above never sees it. Whoever needs to know which surface that was has the point and nothing else,
+// and this service is what holds every surface's rectangle in the coordinate contract they are
+// declared in (A2, CSS top-left). Walking the native view tree instead re-derives that fact in
+// whatever coordinate space the walker happens to be in — measured 2026-08-17, a first attempt did
+// exactly that and landed short by the title bar's height.
+//
+// The applied rectangle, not the declared one: the point came from the screen, and what is on the
+// screen is what the native layer applied.
+//
+// Topmost wins, by layer and then by the order the inventory declared them, which is the order they
+// are composited in. A point inside two overlapping surfaces belongs to the one a person sees.
+func (service *Service) SurfaceAt(window string, x float64, y float64) string {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return surfaceAt(compositionOf(service.committed[window]), x, y)
+}
+
+func surfaceAt(composition Composition, x float64, y float64) string {
+	found := ""
+	layer := 0
+	for _, placement := range composition.Surfaces {
+		// Invisible or transparent is not there to be clicked. A surface parked behind the one a
+		// person is looking at still holds its rectangle, which is what keeps its layout.
+		if !placement.AppliedVisible || placement.AppliedAlpha <= 0 {
+			continue
+		}
+		frame := placement.Applied
+		if x < frame.X || y < frame.Y || x >= frame.X+frame.Width || y >= frame.Y+frame.Height {
+			continue
+		}
+		if found == "" || placement.Layer >= layer {
+			found = placement.ID
+			layer = placement.Layer
+		}
+	}
+	return found
+}

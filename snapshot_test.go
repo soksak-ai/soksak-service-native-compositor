@@ -10,7 +10,7 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 	window := byte(1)
 	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
 	first := Snapshot{
-		Window: "win-a",
+		Window:   "win-a",
 		Sequence: 1,
 		Surfaces: []Surface{
 			{ID: "surface-left", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{X: 0, Y: 0, Width: 400, Height: 600}, Visible: true, Source: SurfaceSource{"owner": "left"}},
