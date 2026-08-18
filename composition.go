@@ -1,5 +1,7 @@
 package nativesurface
 
+import "sort"
+
 // The compositing verdict: what one window's last commit declared, what the
 // native layer reported back, and the difference between them.
 //
@@ -210,4 +212,84 @@ func surfaceAt(composition Composition, x float64, y float64) string {
 		}
 	}
 	return found
+}
+
+// What of a surface a person can see, and what is over it.
+//
+// A window's own presence — visible, key, not covered by another application — says nothing about
+// one surface inside it. Two surfaces in one window overlap, and the one behind holds its rectangle,
+// its generation and zero drift while nobody can see any of it. Measured across this build: every
+// reading answered correct for a surface that was completely hidden, because none of them asked.
+//
+// The rule is SurfaceAt's, sampled rather than restated: topmost by layer, then by the order the
+// inventory declared them. Asking the same function about points inside a surface is what makes
+// this answer and that answer the same answer.
+
+// coverSamples is how many points across a surface are asked about, per axis. Nine hundred points
+// for a surface, which resolves a hidden strip about three per cent of its width — finer than that
+// is a fraction nobody acts on, and coarser misses a pane covered down one side.
+const coverSamples = 30
+
+// Cover is what lies over one surface.
+type Cover struct {
+	// By names the surfaces found over this one, in no order. Empty means every point sampled
+	// inside it belongs to it.
+	By []string `json:"by"`
+	// Fraction is how much of it they hold, 0 through 1, sampled. Exactly 1 is every sampled point
+	// belonging to something else, which is a surface nobody can see any of.
+	Fraction float64 `json:"fraction"`
+}
+
+// coverOf samples one surface against the composition it is in.
+//
+// A surface that is not applied-visible or is transparent is not covered — it is not there. That is
+// a different fact and it is already reported; folding the two together would answer "hidden"
+// for a surface nobody asked to draw.
+func coverOf(composition Composition, subject Placement) Cover {
+	cover := Cover{By: []string{}}
+	if !subject.AppliedVisible || subject.AppliedAlpha <= 0 {
+		return cover
+	}
+	if subject.Applied.Width <= 0 || subject.Applied.Height <= 0 {
+		return cover
+	}
+	over := map[string]bool{}
+	covered := 0
+	total := 0
+	for row := 0; row < coverSamples; row++ {
+		for column := 0; column < coverSamples; column++ {
+			// The centre of each cell rather than its corner: a corner on the boundary between two
+			// surfaces belongs to whichever the comparison rounds toward, and the answer would
+			// change with the arithmetic rather than with the screen.
+			x := subject.Applied.X + subject.Applied.Width*(float64(column)+0.5)/coverSamples
+			y := subject.Applied.Y + subject.Applied.Height*(float64(row)+0.5)/coverSamples
+			total++
+			at := surfaceAt(composition, x, y)
+			if at == "" || at == subject.ID {
+				continue
+			}
+			covered++
+			over[at] = true
+		}
+	}
+	for id := range over {
+		cover.By = append(cover.By, id)
+	}
+	sort.Strings(cover.By)
+	if total > 0 {
+		cover.Fraction = float64(covered) / float64(total)
+	}
+	return cover
+}
+
+// CoverIn answers what lies over every surface of one window, keyed by surface id.
+func (service *Service) CoverIn(window string) map[string]Cover {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	composition := compositionOf(service.committed[window])
+	covers := make(map[string]Cover, len(composition.Surfaces))
+	for _, placement := range composition.Surfaces {
+		covers[placement.ID] = coverOf(composition, placement)
+	}
+	return covers
 }
