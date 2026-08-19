@@ -20,6 +20,7 @@ describe("declarative native surface inventory", () => {
       sentAtUnixMs: snapshot.sentAtUnixMs,
       window: "win-a",
       sequence: 7,
+      interactive: false,
       surfaces: [
         { id: "left", generation: 2, kind: "browser", frame: { x: 0, y: 0, width: 400, height: 600 }, visible: true, alpha: 1, layer: 10, source: { url: "https://example.com/left" } },
         { id: "right", generation: 1, kind: "browser", frame: { x: 400, y: 0, width: 400, height: 600 }, visible: true, alpha: 1, layer: 20, source: { url: "https://example.com/right" } },

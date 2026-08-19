@@ -36,6 +36,10 @@ type Composition struct {
 	// inventory that was applied and held nothing: one is a compositor that has
 	// never run, the other is a window whose document declares no surface.
 	Sequence uint64 `json:"sequence"`
+	// AppliedAtUnixMs is when the backend finished applying this exact inventory.
+	AppliedAtUnixMs float64 `json:"appliedAtUnixMs"`
+	// Interactive is the explicit layout phase carried by this commit.
+	Interactive bool `json:"interactive"`
 	// Surfaces is one entry per surface either half holds.
 	Surfaces []Placement `json:"surfaces"`
 	// Unapplied names the surfaces the document declared and the backend did
@@ -64,9 +68,12 @@ type Placement struct {
 	DeclaredVisible bool    `json:"declaredVisible"`
 	DeclaredAlpha   float64 `json:"declaredAlpha"`
 
-	Applied        Frame   `json:"applied"`
-	AppliedVisible bool    `json:"appliedVisible"`
-	AppliedAlpha   float64 `json:"appliedAlpha"`
+	Applied                   Frame   `json:"applied"`
+	Settled                   *Frame  `json:"settled,omitempty"`
+	LayerContentsRedrawPolicy int     `json:"layerContentsRedrawPolicy"`
+	LayerContentsPlacement    int     `json:"layerContentsPlacement"`
+	AppliedVisible            bool    `json:"appliedVisible"`
+	AppliedAlpha              float64 `json:"appliedAlpha"`
 
 	// Drift is the applied rectangle minus the declared one, per component.
 	//
@@ -105,6 +112,31 @@ func (service *Service) Latest(window string) Composition {
 	return compositionOf(service.committed[window])
 }
 
+// History answers the last retained successful application before sinceUnixMs as a baseline, then
+// every application at or after it, in apply order. A DOM trace whose first frame precedes the first
+// motion Apply still needs to know what the native layer already held; omitting that baseline calls
+// the first displayed frame unobserved. An exact timestamp starts at that exact sample.
+//
+// The compositor owns this timeline because it is the only layer that observes Apply itself;
+// reconstructing it from frontend responses measures bridge return order instead.
+func (service *Service) History(window string, sinceUnixMs float64) []Composition {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	commits := service.history[window]
+	start := 0
+	for start < len(commits) && commits[start].applied.AppliedAtUnixMs < sinceUnixMs {
+		start++
+	}
+	if start > 0 && (start == len(commits) || commits[start].applied.AppliedAtUnixMs != sinceUnixMs) {
+		start--
+	}
+	out := make([]Composition, 0, len(commits)-start)
+	for _, commit := range commits[start:] {
+		out = append(out, compositionOf(commit))
+	}
+	return out
+}
+
 // compositionOf pairs the two halves of one commit by surface id.
 func compositionOf(commit windowCommit) Composition {
 	applied := make(map[string]AppliedSurface, len(commit.applied.Surfaces))
@@ -113,9 +145,11 @@ func compositionOf(commit windowCommit) Composition {
 	}
 
 	composition := Composition{
-		Sequence:       commit.applied.Sequence,
-		Failure:        commit.failure,
-		FailedSequence: commit.failedSequence,
+		Sequence:        commit.applied.Sequence,
+		AppliedAtUnixMs: commit.applied.AppliedAtUnixMs,
+		Interactive:     commit.declared.Interactive,
+		Failure:         commit.failure,
+		FailedSequence:  commit.failedSequence,
 	}
 	declared := make(map[string]bool, len(commit.declared.Surfaces))
 	for _, surface := range commit.declared.Surfaces {
@@ -127,18 +161,21 @@ func compositionOf(commit windowCommit) Composition {
 		}
 		drift := difference(surface.Frame, reported.Frame)
 		composition.Surfaces = append(composition.Surfaces, Placement{
-			ID:              surface.ID,
-			Kind:            surface.Kind,
-			Generation:      surface.Generation,
-			Layer:           surface.Layer,
-			Declared:        surface.Frame,
-			DeclaredVisible: surface.Visible,
-			DeclaredAlpha:   surface.Alpha,
-			Applied:         reported.Frame,
-			AppliedVisible:  reported.Visible,
-			AppliedAlpha:    reported.Alpha,
-			Drift:           &drift,
-			Misparented:     reported.Misparented,
+			ID:                        surface.ID,
+			Kind:                      surface.Kind,
+			Generation:                surface.Generation,
+			Layer:                     surface.Layer,
+			Declared:                  surface.Frame,
+			DeclaredVisible:           surface.Visible,
+			DeclaredAlpha:             surface.Alpha,
+			Applied:                   reported.Frame,
+			Settled:                   reported.Settled,
+			LayerContentsRedrawPolicy: reported.LayerContentsRedrawPolicy,
+			LayerContentsPlacement:    reported.LayerContentsPlacement,
+			AppliedVisible:            reported.Visible,
+			AppliedAlpha:              reported.Alpha,
+			Drift:                     &drift,
+			Misparented:               reported.Misparented,
 		})
 	}
 	for _, surface := range commit.applied.Surfaces {
@@ -146,14 +183,17 @@ func compositionOf(commit windowCommit) Composition {
 			continue
 		}
 		composition.Surfaces = append(composition.Surfaces, Placement{
-			ID:             surface.ID,
-			Generation:     surface.Generation,
-			Layer:          surface.Layer,
-			Applied:        surface.Frame,
-			AppliedVisible: surface.Visible,
-			AppliedAlpha:   surface.Alpha,
-			Misparented:    surface.Misparented,
-			Undeclared:     true,
+			ID:                        surface.ID,
+			Generation:                surface.Generation,
+			Layer:                     surface.Layer,
+			Applied:                   surface.Frame,
+			Settled:                   surface.Settled,
+			LayerContentsRedrawPolicy: surface.LayerContentsRedrawPolicy,
+			LayerContentsPlacement:    surface.LayerContentsPlacement,
+			AppliedVisible:            surface.Visible,
+			AppliedAlpha:              surface.Alpha,
+			Misparented:               surface.Misparented,
+			Undeclared:                true,
 		})
 	}
 	return composition

@@ -39,6 +39,35 @@ function deferred() {
 }
 
 describe("native surface observer", () => {
+  // Interactive layout is an explicit edge owned by the layout system. The compositor must not
+  // infer it from a burst of rectangle changes: that would turn timing into policy and would miss
+  // a pointer-down whose first geometry change has not happened yet.
+  it("commits both edges of an interactive layout phase", async () => {
+    const element = declaration("browser", () => 0);
+    const committed: NativeSurfaceSnapshot[] = [];
+    const ended = deferred();
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      observeMutations: () => () => undefined,
+      observeResizes: () => () => undefined,
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => {
+      committed.push(snapshot);
+      if (committed.length === 3) ended.resolve();
+      return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
+    }, "win-a");
+
+    await Promise.resolve();
+    controller.setInteractive(true);
+    await Promise.resolve();
+    controller.setInteractive(false);
+    await ended.promise;
+
+    expect(committed.map((snapshot) => snapshot.interactive)).toEqual([false, true, false]);
+    controller.stop();
+  });
+
   it("does not replace resize ownership for geometry-only mutations", async () => {
     const element = declaration("browser", () => 0);
     let mutation!: (change: { inventoryChanged: boolean }) => void;

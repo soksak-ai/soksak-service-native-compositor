@@ -22,6 +22,9 @@ export type NativeSurface = {
 export type NativeSurfaceSnapshot = {
   window: string;
   sequence: number;
+  /** True from the layout system's begin edge through its matching end edge. The native owner
+   *  uses this fact to choose interactive presentation without inferring policy from timing. */
+  interactive: boolean;
   surfaces: NativeSurface[];
   /** When this document handed the commit over, by the wall clock. The receipt subtracts it
    *  to say how long the crossing took — a round trip with nothing but the backend's own
@@ -39,6 +42,7 @@ export function collectNativeSurfaceSnapshot(
   declarations: Iterable<NativeSurfaceDeclaration>,
   sequence: number,
   window: string,
+  interactive = false,
 ): NativeSurfaceSnapshot {
   // Refused, never defaulted. The Go half refuses it too, and a default here would answer that
   // refusal with a name the document did not choose.
@@ -94,5 +98,5 @@ export function collectNativeSurfaceSnapshot(
   }
 
   surfaces.sort((left, right) => left.id.localeCompare(right.id));
-  return { window, sequence, surfaces, sentAtUnixMs: Date.now() };
+  return { window, sequence, interactive, surfaces, sentAtUnixMs: Date.now() };
 }

@@ -15,10 +15,11 @@ var errUnapplied = errors.New("browser native batch inventory mismatch: desired=
 // never applies, extra is a surface it holds that no declaration asked for, and
 // refuse turns the next apply into a refusal.
 type driftingBackend struct {
-	shift  Frame
-	drop   string
-	extra  *AppliedSurface
-	refuse error
+	shift   Frame
+	settled *Frame
+	drop    string
+	extra   *AppliedSurface
+	refuse  error
 }
 
 func (backend *driftingBackend) Deliver(string, map[string]any) (map[string]any, error) {
@@ -43,6 +44,7 @@ func (backend *driftingBackend) Apply(window unsafe.Pointer, snapshot Snapshot) 
 				Width:  surface.Frame.Width + backend.shift.Width,
 				Height: surface.Frame.Height + backend.shift.Height,
 			},
+			Settled: backend.settled,
 			Visible: surface.Visible,
 			Alpha:   surface.Alpha,
 			Layer:   surface.Layer,
@@ -55,6 +57,22 @@ func (backend *driftingBackend) Apply(window unsafe.Pointer, snapshot Snapshot) 
 		out = append(out, held)
 	}
 	return out, nil
+}
+
+func TestTheCompositionCarriesInteractivePresentationFacts(t *testing.T) {
+	settled := Frame{X: 256, Y: 20, Width: 544, Height: 580}
+	service := oneWindow(t, &driftingBackend{settled: &settled})
+	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 8, Interactive: true, Surfaces: []Surface{{
+		ID: "browser.win-a.tab-a", Generation: 1, Kind: "browser",
+		Frame: Frame{X: 40, Y: 20, Width: 760, Height: 580}, Visible: true, Alpha: 1,
+	}}}); err != nil {
+		t.Fatalf("commit interactive inventory: %v", err)
+	}
+	composition := service.Latest("win-a")
+	placement := placementOf(t, composition, "browser.win-a.tab-a")
+	if !composition.Interactive || placement.Settled == nil || *placement.Settled != settled {
+		t.Fatalf("interactive presentation facts were lost: %+v %+v", composition, placement)
+	}
 }
 
 // oneWindow is a service with a single real window handle.

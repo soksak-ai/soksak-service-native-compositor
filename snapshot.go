@@ -39,9 +39,12 @@ type Snapshot struct {
 	// A surface is attached to one window's content view and its frame is in that document's
 	// coordinates. Without the name a host with two windows attaches every surface to whichever
 	// one it happened to hand over, and the frames are read against the wrong box.
-	Window   string    `json:"window"`
-	Sequence uint64    `json:"sequence"`
-	Surfaces []Surface `json:"surfaces"`
+	Window   string `json:"window"`
+	Sequence uint64 `json:"sequence"`
+	// Interactive is the layout system's explicit gesture phase. It is carried with the whole
+	// inventory so each native kind owns how its live surface is presented during that phase.
+	Interactive bool      `json:"interactive"`
+	Surfaces    []Surface `json:"surfaces"`
 	// SentAtUnixMs is when the document handed this over, by its own wall clock.
 	//
 	// A receipt says how long the backend held the commit and a caller measures the whole
@@ -56,12 +59,17 @@ type Snapshot struct {
 }
 
 type AppliedSurface struct {
-	ID         string  `json:"id"`
-	Generation uint64  `json:"generation"`
-	Frame      Frame   `json:"frame"`
-	Visible    bool    `json:"visible"`
-	Alpha      float64 `json:"alpha"`
-	Layer      int     `json:"layer"`
+	ID         string `json:"id"`
+	Generation uint64 `json:"generation"`
+	Frame      Frame  `json:"frame"`
+	// Settled is the native view's raw layout frame when presentation differs from layout during
+	// an interactive phase. Nil means this native kind has no separate settled geometry.
+	Settled                   *Frame  `json:"settled,omitempty"`
+	LayerContentsRedrawPolicy int     `json:"layerContentsRedrawPolicy"`
+	LayerContentsPlacement    int     `json:"layerContentsPlacement"`
+	Visible                   bool    `json:"visible"`
+	Alpha                     float64 `json:"alpha"`
+	Layer                     int     `json:"layer"`
 	// Window is the window the backend read this surface out of after
 	// attaching it — not the one it was told to use. A backend fills it from
 	// the native object; the compositor compares.
@@ -85,6 +93,10 @@ type Receipt struct {
 	Sequence uint64           `json:"sequence"`
 	Accepted bool             `json:"accepted"`
 	Surfaces []AppliedSurface `json:"surfaces"`
+	// AppliedAtUnixMs is the wall-clock instant immediately after the backend applied this inventory.
+	// It is recorded here, where Apply actually returns. A frontend response timestamp includes the
+	// return bridge and cannot say when the native view moved.
+	AppliedAtUnixMs float64 `json:"appliedAtUnixMs"`
 	// AppliedMs is how long the backend held this commit — the native work alone, without the
 	// bridge that carried the request or the wait for a thread that was busy with something else.
 	//
@@ -127,8 +139,13 @@ type Service struct {
 	backend   Backend
 	latest    map[string]Receipt
 	committed map[string]windowCommit
+	history   map[string][]windowCommit
 	stopped   bool
 }
+
+// Enough for ten seconds at a deliberately hostile 120 native applications per second. Older
+// samples cannot participate in the bounded UI trace and are discarded at the writer.
+const historyLimit = 1200
 
 func NewService(windows func(name string) unsafe.Pointer, backend Backend) *Service {
 	return &Service{
@@ -136,6 +153,7 @@ func NewService(windows func(name string) unsafe.Pointer, backend Backend) *Serv
 		backend:   backend,
 		latest:    map[string]Receipt{},
 		committed: map[string]windowCommit{},
+		history:   map[string][]windowCommit{},
 	}
 }
 
@@ -222,6 +240,7 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	startedAt := time.Now()
 	applied, err := service.backend.Apply(handle, snapshot)
 	appliedMs := float64(time.Since(startedAt).Microseconds()) / 1000
+	appliedAtUnixMs := float64(time.Now().UnixNano()) / 1e6
 	if err != nil {
 		// A refused attempt is recorded rather than forgotten. Without it the
 		// last healthy inventory keeps answering, and every reading reports a
@@ -242,15 +261,26 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	}
 	sort.Slice(applied, func(i, j int) bool { return applied[i].ID < applied[j].ID })
 	receipt := Receipt{
-		Sequence:  snapshot.Sequence,
-		Accepted:  true,
-		Surfaces:  applied,
-		AppliedMs: appliedMs,
-		CarriedMs: carriedMs,
+		Sequence:        snapshot.Sequence,
+		Accepted:        true,
+		Surfaces:        applied,
+		AppliedAtUnixMs: appliedAtUnixMs,
+		AppliedMs:       appliedMs,
+		CarriedMs:       carriedMs,
 	}
 	service.latest[snapshot.Window] = receipt
-	service.committed[snapshot.Window] = windowCommit{declared: snapshot, applied: receipt}
+	commit := windowCommit{declared: snapshot, applied: receipt}
+	service.committed[snapshot.Window] = commit
+	service.appendHistoryLocked(snapshot.Window, commit)
 	return receipt, nil
+}
+
+func (service *Service) appendHistoryLocked(window string, commit windowCommit) {
+	history := append(service.history[window], commit)
+	if len(history) > historyLimit {
+		history = append([]windowCommit(nil), history[len(history)-historyLimit:]...)
+	}
+	service.history[window] = history
 }
 
 // Status answers one window's applied inventory.
@@ -349,7 +379,11 @@ func (service *Service) Drain() (drained int, remaining int, err error) {
 				fmt.Errorf("native surface shutdown inventory for %s is not empty: %d", name, len(applied))
 		}
 		drained += len(receipt.Surfaces)
-		service.latest[name] = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}}
+		receipt = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}, AppliedAtUnixMs: float64(time.Now().UnixNano()) / 1e6}
+		service.latest[name] = receipt
+		commit := windowCommit{declared: Snapshot{Window: name, Sequence: sequence}, applied: receipt}
+		service.committed[name] = commit
+		service.appendHistoryLocked(name, commit)
 	}
 	return drained, service.heldLocked(), nil
 }

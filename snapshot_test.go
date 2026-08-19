@@ -2,8 +2,47 @@ package nativesurface
 
 import (
 	"testing"
+	"time"
 	"unsafe"
 )
+
+func TestCommitRecordsWhenEachNativeInventoryActuallyLanded(t *testing.T) {
+	backend := &recordingBackend{}
+	window := byte(1)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+
+	before := float64(time.Now().UnixNano()) / 1e6
+	for sequence, x := range []float64{10, 40} {
+		if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: uint64(sequence + 1), Surfaces: []Surface{{
+			ID: "browser", Generation: 1, Kind: "browser",
+			Frame: Frame{X: x, Width: 100, Height: 80}, Visible: true, Alpha: 1,
+		}}}); err != nil {
+			t.Fatalf("commit %d: %v", sequence+1, err)
+		}
+	}
+	after := float64(time.Now().UnixNano()) / 1e6
+
+	history := service.History("win-a", before)
+	if len(history) != 2 {
+		t.Fatalf("the native timeline lost an applied inventory: %+v", history)
+	}
+	if history[0].Sequence != 1 || history[1].Sequence != 2 ||
+		history[0].Surfaces[0].Applied.X != 10 || history[1].Surfaces[0].Applied.X != 40 {
+		t.Fatalf("the timeline did not preserve applied order and geometry: %+v", history)
+	}
+	for _, sample := range history {
+		if sample.AppliedAtUnixMs < before || sample.AppliedAtUnixMs > after {
+			t.Fatalf("applied time is not the instant owned by the compositor: %+v", sample)
+		}
+	}
+	if got := service.History("win-a", history[1].AppliedAtUnixMs); len(got) != 1 || got[0].Sequence != 2 {
+		t.Fatalf("since is inclusive and must return only the matching tail: %+v", got)
+	}
+	between := (history[0].AppliedAtUnixMs + history[1].AppliedAtUnixMs) / 2
+	if got := service.History("win-a", between); len(got) != 2 || got[0].Sequence != 1 {
+		t.Fatalf("a query between applies must carry the native baseline: %+v", got)
+	}
+}
 
 func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T) {
 	backend := &recordingBackend{}

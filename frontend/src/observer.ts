@@ -27,6 +27,8 @@ export type NativeSurfaceObserverRuntime = {
 };
 
 export type NativeSurfaceObserverController = {
+  /** Publish the explicit begin/end edge of an interactive layout phase. */
+  setInteractive(active: boolean): void;
   stop(): void;
   status(): { sequence: number; committedSequence: number; running: boolean; dirty: boolean; error: unknown };
 };
@@ -54,6 +56,11 @@ export function startNativeSurfaceObserver(
   let sequence = sequenceFloor;
   let committedSequence = 0;
   let error: unknown = null;
+  let interactive = false;
+  // Geometry bursts collapse to the latest full inventory, but motion edges do not. Coalescing a
+  // begin and end while one commit is in flight would make the native owner see two inactive
+  // snapshots and no interactive phase at all.
+  const interactiveEdges: boolean[] = [];
   let stopResize: () => void = () => {};
   let stopMove: () => void = () => {};
 
@@ -77,7 +84,8 @@ export function startNativeSurfaceObserver(
     dirty = false;
     running = true;
     const declarations = runtime.declarations();
-    const snapshot = collectNativeSurfaceSnapshot(declarations, ++sequence, window);
+    const snapshotInteractive = interactiveEdges.shift() ?? interactive;
+    const snapshot = collectNativeSurfaceSnapshot(declarations, ++sequence, window, snapshotInteractive);
     // What was declared, written back on the element that declared it. Without it the document can
     // be asked where a surface should be and the native layer where it is, and nothing can be asked
     // how far the declaration itself has fallen behind the element — the number that says the
@@ -101,7 +109,7 @@ export function startNativeSurfaceObserver(
       error = cause;
     } finally {
       running = false;
-      if (dirty && !stopped) schedule();
+      if ((dirty || interactiveEdges.length > 0) && !stopped) schedule();
     }
   };
 
@@ -114,6 +122,12 @@ export function startNativeSurfaceObserver(
   schedule();
 
   return {
+    setInteractive(active) {
+      if (stopped || interactive === active) return;
+      interactive = active;
+      interactiveEdges.push(active);
+      schedule();
+    },
     stop() {
       if (stopped) return;
       stopped = true;
