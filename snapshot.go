@@ -135,8 +135,18 @@ type Service struct {
 	// windows resolves a window name to its native handle. Nil, or an unknown
 	// name, is "that window is not ready" — which is not the same as a window
 	// holding no surfaces.
-	windows   func(name string) unsafe.Pointer
-	backend   Backend
+	windows func(name string) unsafe.Pointer
+	// backends is one per surface kind, and the kind on a declaration is what picks it.
+	//
+	// There was one backend, and the kind was validated non-empty and then never read — a declared
+	// fact with no consumer, which is the shape this substrate refuses everywhere else. It also made
+	// the seam a claim rather than a seam: whatever that one backend implemented was every kind
+	// there was, so a second kind meant editing this file, and a compositor that has to be edited
+	// per kind is the lock-in it exists to prevent.
+	//
+	// Routing by kind reads a declaration rather than inventing an abstraction. The field is already
+	// on the wire, already validated, and already stated by the unit that implements it.
+	backends  map[SurfaceKind]Backend
 	latest    map[string]Receipt
 	committed map[string]windowCommit
 	history   map[string][]windowCommit
@@ -147,14 +157,96 @@ type Service struct {
 // samples cannot participate in the bounded UI trace and are discarded at the writer.
 const historyLimit = 1200
 
-func NewService(windows func(name string) unsafe.Pointer, backend Backend) *Service {
+// NewService takes one backend per surface kind.
+//
+// A kind with no backend is refused by name at the declaration that asks for it, rather than at a
+// nil dereference or a silent skip: a surface nobody can place is a fact the caller has to be told,
+// and a caller that is not told draws an empty pane and concludes the page failed to load.
+func NewService(windows func(name string) unsafe.Pointer, backends map[SurfaceKind]Backend) *Service {
+	held := make(map[SurfaceKind]Backend, len(backends))
+	for kind, backend := range backends {
+		held[kind] = backend
+	}
 	return &Service{
 		windows:   windows,
-		backend:   backend,
+		backends:  held,
 		latest:    map[string]Receipt{},
 		committed: map[string]windowCommit{},
 		history:   map[string][]windowCommit{},
 	}
+}
+
+// unplaceableLocked names the first kind in a snapshot that no backend implements.
+//
+// Refused before anything is applied, so a commit is all or none. Half an inventory placed and half
+// refused leaves the document's picture and the screen apart, with a receipt that says the commit
+// succeeded for what it managed.
+func (service *Service) unplaceableLocked(snapshot Snapshot) (SurfaceKind, bool) {
+	for _, surface := range snapshot.Surfaces {
+		if _, wired := service.backends[surface.Kind]; !wired {
+			return surface.Kind, true
+		}
+	}
+	return "", false
+}
+
+// applyByKind gives every wired backend its own complete inventory for this window.
+//
+// Every one of them, not only the kinds present. A backend whose surfaces have all gone has to be
+// told, and telling it means an empty list — the inventory is complete or it is not an inventory,
+// and a backend skipped this round keeps drawing what the document has already forgotten.
+func (service *Service) applyByKind(handle unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
+	byKind := make(map[SurfaceKind][]Surface, len(service.backends))
+	for kind := range service.backends {
+		byKind[kind] = nil
+	}
+	for _, surface := range snapshot.Surfaces {
+		byKind[surface.Kind] = append(byKind[surface.Kind], surface)
+	}
+
+	kinds := make([]SurfaceKind, 0, len(byKind))
+	for kind := range byKind {
+		kinds = append(kinds, kind)
+	}
+	// In one order every time. A map walks differently on every run, and two runs of one build that
+	// place surfaces in a different order are two builds as far as any reading of them is concerned.
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+
+	applied := make([]AppliedSurface, 0, len(snapshot.Surfaces))
+	for _, kind := range kinds {
+		own := snapshot
+		own.Surfaces = byKind[kind]
+		result, err := service.backends[kind].Apply(handle, own)
+		if err != nil {
+			return nil, fmt.Errorf("native surface kind %q: %w", kind, err)
+		}
+		applied = append(applied, result...)
+	}
+	return applied, nil
+}
+
+// kindOfLocked answers what kind a surface was declared as, from the last commit that declared it.
+func (service *Service) kindOfLocked(id string) (SurfaceKind, bool) {
+	for _, commit := range service.committed {
+		for _, surface := range commit.declared.Surfaces {
+			if surface.ID == id {
+				return surface.Kind, true
+			}
+		}
+	}
+	return "", false
+}
+
+// Kinds is every surface kind this compositor can place. It answers what is wired, not what exists.
+func (service *Service) Kinds() []SurfaceKind {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	out := make([]SurfaceKind, 0, len(service.backends))
+	for kind := range service.backends {
+		out = append(out, kind)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // window answers one window's handle, or nil when it cannot be resolved.
@@ -229,8 +321,14 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if handle == nil {
 		return Receipt{}, fmt.Errorf("native surface window %s is not ready", snapshot.Window)
 	}
-	if service.backend == nil {
-		return Receipt{}, fmt.Errorf("native surface backend is not configured")
+	if len(service.backends) == 0 {
+		return Receipt{}, fmt.Errorf("this compositor has no backend for any surface kind")
+	}
+	if kind, unplaceable := service.unplaceableLocked(snapshot); unplaceable {
+		return Receipt{}, fmt.Errorf(
+			"native surface kind %q has no backend in this build — a surface nobody can place is "+
+				"refused here rather than left out of the answer, where it reads as a pane that drew nothing",
+			kind)
 	}
 	// Stamped before the work, against the same wall clock the document used.
 	carriedMs := float64(-1)
@@ -238,7 +336,7 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		carriedMs = float64(time.Now().UnixNano())/1e6 - snapshot.SentAtUnixMs
 	}
 	startedAt := time.Now()
-	applied, err := service.backend.Apply(handle, snapshot)
+	applied, err := service.applyByKind(handle, snapshot)
 	appliedMs := float64(time.Since(startedAt).Microseconds()) / 1000
 	appliedAtUnixMs := float64(time.Now().UnixNano()) / 1e6
 	if err != nil {
@@ -302,16 +400,27 @@ func (service *Service) Deliver(id string, message map[string]any) (map[string]a
 	if service.stopped {
 		return nil, fmt.Errorf("native surface %s cannot be driven: this compositor has shut down", id)
 	}
-	if service.backend == nil {
-		return nil, fmt.Errorf("native surface %s cannot be driven: there is no backend", id)
-	}
 	// Every window's inventory. A surface id is unique across the application,
 	// so the window it is in is not something a caller has to know to drive it.
 	for _, receipt := range service.latest {
 		for _, surface := range receipt.Surfaces {
-			if surface.ID == id {
-				return service.backend.Deliver(id, message)
+			if surface.ID != id {
+				continue
 			}
+			// Which backend gets it comes from the declaration, because that is where a kind is
+			// stated. An applied surface reports where it landed and not what it is.
+			kind, declared := service.kindOfLocked(id)
+			if !declared {
+				return nil, fmt.Errorf(
+					"native surface %s was applied and no declaration names its kind — nothing can "+
+						"be told which backend it belongs to", id)
+			}
+			backend, wired := service.backends[kind]
+			if !wired {
+				return nil, fmt.Errorf(
+					"native surface %s is of kind %q and this build has no backend for it", id, kind)
+			}
+			return backend.Deliver(id, message)
 		}
 	}
 	return nil, fmt.Errorf("native surface %s is in no window's applied inventory", id)
@@ -365,12 +474,15 @@ func (service *Service) Drain() (drained int, remaining int, err error) {
 			return drained, service.heldLocked(),
 				fmt.Errorf("native surface window %s is unavailable during shutdown", name)
 		}
-		if service.backend == nil {
+		if len(service.backends) == 0 {
 			return drained, service.heldLocked(),
-				fmt.Errorf("native surface backend is unavailable during shutdown")
+				fmt.Errorf("this compositor has no backend for any surface kind during shutdown")
 		}
 		sequence := receipt.Sequence + 1
-		applied, applyErr := service.backend.Apply(handle, Snapshot{Window: name, Sequence: sequence})
+		// Every backend is told, with an empty inventory each. Shutdown is the case where every kind
+		// has to hear that nothing is declared any more, and a backend skipped here keeps its
+		// surfaces on a window the application is done with.
+		applied, applyErr := service.applyByKind(handle, Snapshot{Window: name, Sequence: sequence})
 		if applyErr != nil {
 			return drained, service.heldLocked(), applyErr
 		}

@@ -20,7 +20,7 @@ var errRefusedDrain = errors.New("this backend will not empty a window")
 func TestDrainAnswersWhatItTookDownAndWhatIsLeft(t *testing.T) {
 	handle := byte(1)
 	backend := &drainRecorder{}
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&handle) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&handle) }, wiredFor(backend, "browser"))
 
 	for _, window := range []string{"win-3ztbjd", "win-9m3xb5"} {
 		if _, err := service.Commit(Snapshot{
@@ -62,7 +62,7 @@ func TestADrainThatCouldNotEmptyAWindowSaysHowManyAreLeft(t *testing.T) {
 	handle := byte(1)
 	service := NewService(
 		func(string) unsafe.Pointer { return unsafe.Pointer(&handle) },
-		&drainRecorder{refuse: true})
+		wiredFor(&drainRecorder{refuse: true}, "browser"))
 
 	if _, err := service.Commit(Snapshot{
 		Window: "win-3ztbjd", Sequence: 1,

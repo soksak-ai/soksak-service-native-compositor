@@ -50,7 +50,7 @@ func TestASurfaceLandsInTheWindowThatDeclaredIt(t *testing.T) {
 		"win-a": unsafe.Pointer(&workspace),
 	}
 	backend := &windowRecordingBackend{}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, backend)
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(backend, "browser"))
 
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("brw-1")}}); err != nil {
 		t.Fatalf("the workspace window's commit was refused: %v", err)
@@ -74,7 +74,7 @@ func TestOneWindowsSequenceDoesNotStaleAnother(t *testing.T) {
 		"win-a": unsafe.Pointer(&workspace),
 	}
 	backend := &windowRecordingBackend{}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, backend)
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(backend, "browser"))
 
 	for sequence := uint64(1); sequence <= 10; sequence++ {
 		if _, err := service.Commit(Snapshot{Window: "main", Sequence: sequence, Surfaces: []Surface{aSurface("srf-main")}}); err != nil {
@@ -102,7 +102,7 @@ func TestAReadingAnswersForOneWindow(t *testing.T) {
 		"main":  unsafe.Pointer(&orchestrator),
 		"win-a": unsafe.Pointer(&workspace),
 	}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, &windowRecordingBackend{})
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(&windowRecordingBackend{}, "browser"))
 
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("brw-1")}}); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -154,7 +154,7 @@ func TestASurfaceInAnotherWindowIsReported(t *testing.T) {
 		"win-a": unsafe.Pointer(&workspace),
 	}
 	backend := &misparentingBackend{putIn: handles["main"]}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, backend)
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(backend, "browser"))
 
 	receipt, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("brw-1")}})
 	if err != nil {
@@ -172,7 +172,7 @@ func TestASurfaceInItsOwnWindowIsNotReportedMisparented(t *testing.T) {
 	var workspace byte
 	handles := map[string]unsafe.Pointer{"win-a": unsafe.Pointer(&workspace)}
 	backend := &misparentingBackend{putIn: handles["win-a"]}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, backend)
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(backend, "browser"))
 
 	receipt, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("brw-1")}})
 	if err != nil {
@@ -190,7 +190,7 @@ func TestASurfaceInItsOwnWindowIsNotReportedMisparented(t *testing.T) {
 func TestABackendThatReportsNoWindowIsNotTakenAtItsWord(t *testing.T) {
 	var workspace byte
 	handles := map[string]unsafe.Pointer{"win-a": unsafe.Pointer(&workspace)}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, &misparentingBackend{putIn: nil})
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(&misparentingBackend{putIn: nil}, "browser"))
 
 	receipt, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("brw-1")}})
 	if err != nil {

@@ -35,7 +35,7 @@ func deliveringService(t *testing.T, backend *deliveringBackend, ids ...string) 
 	t.Helper()
 	// A real allocation, not a made-up address — checkptr rejects arithmetic on an invented one.
 	window := unsafe.Pointer(new(byte))
-	service := NewService(func(string) unsafe.Pointer { return window }, backend)
+	service := NewService(func(string) unsafe.Pointer { return window }, wiredFor(backend, "browser"))
 	surfaces := make([]Surface, 0, len(ids))
 	for _, id := range ids {
 		surfaces = append(surfaces, Surface{

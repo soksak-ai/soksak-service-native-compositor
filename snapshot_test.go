@@ -9,7 +9,7 @@ import (
 func TestCommitRecordsWhenEachNativeInventoryActuallyLanded(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "browser"))
 
 	before := float64(time.Now().UnixNano()) / 1e6
 	for sequence, x := range []float64{10, 40} {
@@ -47,7 +47,7 @@ func TestCommitRecordsWhenEachNativeInventoryActuallyLanded(t *testing.T) {
 func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "test-surface"))
 	first := Snapshot{
 		Window:   "win-a",
 		Sequence: 1,
@@ -79,7 +79,7 @@ func TestCommitAppliesOneValidatedInventoryAndRejectsStaleSnapshots(t *testing.T
 
 func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 	window := byte(1)
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, &recordingBackend{})
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(&recordingBackend{}, "test-surface"))
 	_, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{
 		{ID: "same", Generation: 1, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
 		{ID: "same", Generation: 2, Kind: SurfaceKind("test-surface"), Frame: Frame{Width: 10, Height: 10}},
@@ -92,7 +92,7 @@ func TestSnapshotRejectsDuplicateSurfaceOwners(t *testing.T) {
 func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "project-native-kind"))
 	_, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "project-defined", Generation: 1, Kind: SurfaceKind("project-native-kind"),
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
@@ -105,7 +105,7 @@ func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
-	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, backend)
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "test-surface"))
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "surface-1", Generation: 1, Kind: SurfaceKind("test-surface"),
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,

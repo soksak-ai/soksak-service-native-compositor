@@ -2,6 +2,7 @@ package nativesurface
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -61,7 +62,7 @@ func (backend *driftingBackend) Apply(window unsafe.Pointer, snapshot Snapshot) 
 
 func TestTheCompositionCarriesInteractivePresentationFacts(t *testing.T) {
 	settled := Frame{X: 256, Y: 20, Width: 544, Height: 580}
-	service := oneWindow(t, &driftingBackend{settled: &settled})
+	service := oneWindow(t, &driftingBackend{settled: &settled}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 8, Interactive: true, Surfaces: []Surface{{
 		ID: "browser.win-a.tab-a", Generation: 1, Kind: "browser",
 		Frame: Frame{X: 40, Y: 20, Width: 760, Height: 580}, Visible: true, Alpha: 1,
@@ -76,7 +77,7 @@ func TestTheCompositionCarriesInteractivePresentationFacts(t *testing.T) {
 }
 
 // oneWindow is a service with a single real window handle.
-func oneWindow(t *testing.T, backend Backend) *Service {
+func oneWindow(t *testing.T, backend Backend, kinds ...SurfaceKind) *Service {
 	t.Helper()
 	// A real allocation, because the handle is compared against what the
 	// backend reports and two nil handles compare equal.
@@ -86,7 +87,7 @@ func oneWindow(t *testing.T, backend Backend) *Service {
 			return nil
 		}
 		return unsafe.Pointer(&handle)
-	}, backend)
+	}, wiredFor(backend, kinds...))
 }
 
 func placementOf(t *testing.T, composition Composition, id string) Placement {
@@ -104,7 +105,7 @@ func placementOf(t *testing.T, composition Composition, id string) Placement {
 // holds both. A caller that has to subtract the two itself puts the arithmetic
 // in every caller, and two callers reading one commit can then disagree.
 func TestTheCompositionAnswersBothHalvesAndTheirDifference(t *testing.T) {
-	service := oneWindow(t, &driftingBackend{shift: Frame{Y: 6}})
+	service := oneWindow(t, &driftingBackend{shift: Frame{Y: 6}}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 7, Surfaces: []Surface{{
 		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 3, Kind: "browser", Layer: 10,
 		Frame: Frame{X: 10, Y: 20, Width: 300, Height: 200}, Visible: true, Alpha: 1,
@@ -143,7 +144,7 @@ func TestTheCompositionAnswersBothHalvesAndTheirDifference(t *testing.T) {
 // Zero is the pass condition and it has to be reachable. A difference that can
 // never be zero measures the arithmetic instead of the native layer.
 func TestAnExactApplicationIsZeroDifference(t *testing.T) {
-	service := oneWindow(t, &driftingBackend{})
+	service := oneWindow(t, &driftingBackend{}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{X: 4, Y: 8, Width: 100, Height: 50}, Visible: true, Alpha: 1,
@@ -160,7 +161,7 @@ func TestAnExactApplicationIsZeroDifference(t *testing.T) {
 // A declared surface the backend never reported is named rather than dropped. A
 // count that agreed while the screen did not is what this list prevents.
 func TestADeclarationTheBackendNeverAppliedIsNamed(t *testing.T) {
-	service := oneWindow(t, &driftingBackend{drop: "browser.win-3ztbjd.tab-qwdqt6"})
+	service := oneWindow(t, &driftingBackend{drop: "browser.win-3ztbjd.tab-qwdqt6"}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 2, Surfaces: []Surface{
 		{
 			ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
@@ -191,7 +192,7 @@ func TestASurfaceNoDeclarationAskedForIsNamed(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{extra: &AppliedSurface{
 		ID: "browser.win-3ztbjd.tab-k6jivs", Generation: 1, Layer: 4,
 		Frame: Frame{X: 5, Y: 5, Width: 20, Height: 20}, Visible: true, Alpha: 1,
-	}})
+	}}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 3, Surfaces: []Surface{{
 		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
@@ -218,7 +219,7 @@ func TestASurfaceWithOneHalfHasNoDifference(t *testing.T) {
 	service := oneWindow(t, &driftingBackend{extra: &AppliedSurface{
 		ID: "browser.win-3ztbjd.tab-k6jivs", Generation: 1,
 		Frame: Frame{X: 5, Y: 5, Width: 20, Height: 20}, Visible: true, Alpha: 1,
-	}})
+	}}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
 		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
@@ -237,7 +238,7 @@ func TestASurfaceWithOneHalfHasNoDifference(t *testing.T) {
 // looking at.
 func TestAMisparentedSurfaceIsCarriedIntoTheComposition(t *testing.T) {
 	var elsewhere byte
-	service := oneWindow(t, &misparentingBackend{putIn: unsafe.Pointer(&elsewhere)})
+	service := oneWindow(t, &misparentingBackend{putIn: unsafe.Pointer(&elsewhere)}, "browser")
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("browser.win-3ztbjd.tab-2trqyu")}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestAMisparentedSurfaceIsCarriedIntoTheComposition(t *testing.T) {
 // is the fact worth having.
 func TestARefusedApplyIsCarriedIntoTheComposition(t *testing.T) {
 	backend := &driftingBackend{}
-	service := oneWindow(t, backend)
+	service := oneWindow(t, backend, "browser")
 	declaration := Snapshot{Window: "win-a", Sequence: 4, Surfaces: []Surface{{
 		ID: "browser.win-3ztbjd.tab-2trqyu", Generation: 1, Kind: "browser",
 		Frame: Frame{Width: 10, Height: 10}, Visible: true, Alpha: 1,
@@ -271,8 +272,13 @@ func TestARefusedApplyIsCarriedIntoTheComposition(t *testing.T) {
 	}
 
 	composition := service.Latest("win-a")
-	if composition.Failure != errUnapplied.Error() {
+	// What the backend said, and which kind's backend said it. With one backend per kind, a failure
+	// that named neither would leave a reader unable to tell which half of a mixed inventory failed.
+	if !strings.Contains(composition.Failure, errUnapplied.Error()) {
 		t.Errorf("failure is %q, not what the backend said", composition.Failure)
+	}
+	if !strings.Contains(composition.Failure, `"browser"`) {
+		t.Errorf("failure is %q and names no kind", composition.Failure)
 	}
 	if composition.FailedSequence != 5 {
 		t.Errorf("the refusal happened at %d, not 5", composition.FailedSequence)
@@ -289,7 +295,7 @@ func TestTheCompositionIsOneWindowsOwn(t *testing.T) {
 		"main":  unsafe.Pointer(&orchestrator),
 		"win-a": unsafe.Pointer(&workspace),
 	}
-	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, &driftingBackend{})
+	service := NewService(func(name string) unsafe.Pointer { return handles[name] }, wiredFor(&driftingBackend{}, "browser"))
 	if _, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{aSurface("browser.win-3ztbjd.tab-2trqyu")}}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -315,7 +321,7 @@ func TestTheCompositionIsOneWindowsOwn(t *testing.T) {
 func TestASurfaceIdentityIsOpaqueToTheCompositor(t *testing.T) {
 	const foreign = "a surface named by somebody else/entirely::42"
 
-	service := oneWindow(t, &driftingBackend{})
+	service := oneWindow(t, &driftingBackend{}, "some-other-kind")
 	if _, err := service.Commit(Snapshot{
 		Window: "win-a", Sequence: 1,
 		Surfaces: []Surface{{
