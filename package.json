@@ -1,0 +1,23 @@
+{
+  "name": "@min-median-max/wails-service-native-compositor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/min-median-max/wails-service-native-compositor.git"
+  },
+  "exports": {
+    ".": "./frontend/src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --root frontend",
+    "typecheck": "tsc --noEmit -p frontend/tsconfig.json"
+  },
+  "devDependencies": {
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
