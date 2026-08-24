@@ -46,8 +46,9 @@ layout tree, component, or generated binding path exists in this package.
 ## Verification
 
 ```sh
-go test ./...
-go vet ./...
-pnpm --dir frontend test
-pnpm --dir frontend typecheck
+make verify
 ```
+
+`go.mod`, `.node-version`, and `package.json#packageManager` are the exact Go, Node, and pnpm owners.
+Make verifies only the public compositor service and DOM observer implementation; applications and
+native Backend implementations verify their own boundaries.
