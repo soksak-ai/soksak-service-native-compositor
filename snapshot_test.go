@@ -35,8 +35,13 @@ func TestCommitRecordsWhenEachNativeInventoryActuallyLanded(t *testing.T) {
 			t.Fatalf("applied time is not the instant owned by the compositor: %+v", sample)
 		}
 	}
-	if got := service.History("win-a", history[1].AppliedAtUnixMs); len(got) != 1 || got[0].Sequence != 2 {
-		t.Fatalf("since is inclusive and must return only the matching tail: %+v", got)
+	got := service.History("win-a", history[1].AppliedAtUnixMs)
+	wantLength, wantFirst := 1, uint64(2)
+	if history[0].AppliedAtUnixMs == history[1].AppliedAtUnixMs {
+		wantLength, wantFirst = 2, 1
+	}
+	if len(got) != wantLength || got[0].Sequence != wantFirst || got[len(got)-1].Sequence != 2 {
+		t.Fatalf("since is inclusive and must retain every equal-time sample in sequence order: %+v", got)
 	}
 	between := (history[0].AppliedAtUnixMs + history[1].AppliedAtUnixMs) / 2
 	if got := service.History("win-a", between); len(got) != 2 || got[0].Sequence != 1 {
