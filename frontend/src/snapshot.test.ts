@@ -11,7 +11,7 @@ describe("declarative native surface inventory", () => {
     ];
 
     const before = Date.now();
-    const snapshot = collectNativeSurfaceSnapshot(elements, 7, "win-a");
+    const snapshot = collectNativeSurfaceSnapshot(elements, 7, "win-a", () => true);
     // The stamp is what the receipt subtracts to say how long the crossing took, so it is a
     // wall-clock reading taken here and not a field a caller fills in.
     expect(snapshot.sentAtUnixMs).toBeGreaterThanOrEqual(before);
@@ -33,19 +33,19 @@ describe("declarative native surface inventory", () => {
       declaration("same", 1, { left: 0, top: 0, width: 10, height: 10 }),
       declaration("same", 2, { left: 10, top: 0, width: 10, height: 10 }),
     ];
-    expect(() => collectNativeSurfaceSnapshot(elements, 1, "win-a")).toThrow("duplicate native surface id: same");
+    expect(() => collectNativeSurfaceSnapshot(elements, 1, "win-a", () => true)).toThrow("duplicate native surface id: same");
   });
 
   it("keeps project-defined native surface kinds opaque", () => {
     const element = declaration("custom", 1, { left: 0, top: 0, width: 10, height: 10 }, "project-native-kind");
-    expect(collectNativeSurfaceSnapshot([element], 1, "win-a").surfaces[0].kind).toBe("project-native-kind");
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-a", () => true).surfaces[0].kind).toBe("project-native-kind");
   });
 
   it("keeps Plugin visibility declared while a host capture lease hides presentation", () => {
     const element = declaration("capture", 1, { left: 0, top: 0, width: 10, height: 10 });
     element.dataset.nativeVisible = "true";
     element.dataset.nativeCaptureHidden = "true";
-    expect(collectNativeSurfaceSnapshot([element], 1, "win-a").surfaces[0].visible).toBe(false);
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-a", () => true).surfaces[0].visible).toBe(false);
     expect(element.dataset.nativeVisible).toBe("true");
   });
 });
@@ -75,11 +75,11 @@ function declaration(id: string, generation: number, rect: { left: number; top: 
 describe("the window a snapshot was collected in", () => {
   it("names it", () => {
     const element = declaration("only", 1, { left: 0, top: 0, width: 10, height: 10 });
-    expect(collectNativeSurfaceSnapshot([element], 1, "win-b").window).toBe("win-b");
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-b", () => true).window).toBe("win-b");
   });
 
   it("refuses an unnamed one rather than defaulting it", () => {
     const element = declaration("only", 1, { left: 0, top: 0, width: 10, height: 10 });
-    expect(() => collectNativeSurfaceSnapshot([element], 1, "")).toThrow("native surface snapshot names no window");
+    expect(() => collectNativeSurfaceSnapshot([element], 1, "", () => true)).toThrow("native surface snapshot names no window");
   });
 });

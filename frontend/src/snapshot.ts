@@ -42,6 +42,7 @@ export function collectNativeSurfaceSnapshot(
   declarations: Iterable<NativeSurfaceDeclaration>,
   sequence: number,
   window: string,
+  presentationVisible: (declaration: NativeSurfaceDeclaration) => boolean,
   interactive = false,
 ): NativeSurfaceSnapshot {
   // Refused, never defaulted. The Go half refuses it too, and a default here would answer that
@@ -93,6 +94,7 @@ export function collectNativeSurfaceSnapshot(
       visible: declaration.isConnected
         && declaration.dataset.nativeVisible !== "false"
         && declaration.dataset.nativeCaptureHidden !== "true"
+        && presentationVisible(declaration)
         && frame.width > 0
         && frame.height > 0,
       alpha,

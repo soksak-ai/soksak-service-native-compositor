@@ -10,6 +10,8 @@ export type NativeSurfaceCommit = (snapshot: NativeSurfaceSnapshot) => Promise<N
 export type NativeSurfaceMutation = { inventoryChanged: boolean };
 export type NativeSurfaceObserverRuntime = {
   declarations(): Iterable<NativeSurfaceDeclaration>;
+  /** Conjoins a surface's own declaration with the host layout presentation state. */
+  presentationVisible(declaration: NativeSurfaceDeclaration): boolean;
   observeMutations(callback: (mutation: NativeSurfaceMutation) => void): () => void;
   observeResizes(declarations: Iterable<NativeSurfaceDeclaration>, callback: () => void): () => void;
   /**
@@ -85,7 +87,13 @@ export function startNativeSurfaceObserver(
     running = true;
     const declarations = runtime.declarations();
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
-    const snapshot = collectNativeSurfaceSnapshot(declarations, ++sequence, window, snapshotInteractive);
+    const snapshot = collectNativeSurfaceSnapshot(
+      declarations,
+      ++sequence,
+      window,
+      runtime.presentationVisible,
+      snapshotInteractive,
+    );
     // What was declared, written back on the element that declared it. Without it the document can
     // be asked where a surface should be and the native layer where it is, and nothing can be asked
     // how far the declaration itself has fallen behind the element — the number that says the
@@ -155,6 +163,12 @@ export function nativeSurfaceDOMRuntime(
 ): NativeSurfaceObserverRuntime {
   return {
     declarations: () => Array.from(root.querySelectorAll<HTMLElement>(declarationSelector)),
+    presentationVisible(declaration) {
+      for (let current = declaration as HTMLElement | null; current; current = current.parentElement) {
+        if (current.dataset.surfaceVisible === "false") return false;
+      }
+      return true;
+    },
     observeMutations(callback) {
       // An element is recognised by what it can answer, not by a global class. `node instanceof
       // Element` reads a binding from whatever realm this module was loaded in, and a document from
@@ -199,6 +213,7 @@ export function nativeSurfaceDOMRuntime(
           "class", "style", "hidden",
           "data-native-surface", "data-native-surface-id", "data-native-generation",
           "data-native-source", "data-native-visible", "data-native-capture-hidden", "data-native-alpha", "data-native-layer",
+          "data-surface-visible",
         ],
       });
       return () => observer.disconnect();

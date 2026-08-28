@@ -48,6 +48,7 @@ describe("native surface observer", () => {
     const ended = deferred();
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: () => () => undefined,
       observeResizes: () => () => undefined,
       observeMoves: () => () => undefined,
@@ -75,6 +76,7 @@ describe("native surface observer", () => {
     let resizeStops = 0;
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: (callback) => { mutation = callback; return () => undefined; },
       observeResizes: () => { resizeStarts++; return () => { resizeStops++; }; },
       observeMoves: () => () => undefined,
@@ -99,6 +101,7 @@ describe("native surface observer", () => {
     const committed: number[] = [];
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: () => () => undefined,
       observeResizes: () => () => undefined,
       observeMoves: nativeSurfaceDOMRuntime(framed()).observeMoves,
@@ -124,6 +127,7 @@ describe("native surface observer", () => {
     let commits = 0;
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: () => () => undefined,
       observeResizes: () => () => undefined,
       observeMoves: nativeSurfaceDOMRuntime(framed()).observeMoves,
@@ -166,6 +170,7 @@ describe("native surface observer", () => {
     const commits: NativeSurfaceSnapshot[] = [];
     const runtime: NativeSurfaceObserverRuntime = {
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: (callback) => { mutation = callback; return () => undefined; },
       observeResizes: (_elements, callback) => { resize = callback; return () => undefined; },
       observeMoves: () => () => undefined,
@@ -205,6 +210,7 @@ describe("native surface observer", () => {
     const commits: NativeSurfaceSnapshot[] = [];
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
+      presentationVisible: () => true,
       observeMutations: (callback) => { mutation = callback; return () => { mutationStops++; }; },
       observeResizes: (_elements, callback) => { resize = callback; return () => { resizeStops++; }; },
       observeMoves: () => () => undefined,
