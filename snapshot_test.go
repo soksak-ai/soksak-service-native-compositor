@@ -111,14 +111,14 @@ func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 // that thread reads SurfaceAt, so holding the readable state lock while Apply
 // runs creates this cycle:
 //
-//   commit -> backend.Apply -> UI thread
-//   UI thread -> SurfaceAt -> state lock
+//	commit -> backend.Apply -> UI thread
+//	UI thread -> SurfaceAt -> state lock
 //
 // Apply is the foreign boundary. It may be serialised with other writes, but it
 // must never own the lock used by Status, SurfaceAt, History or Composition.
 func TestBackendApplyDoesNotOwnReadableStateLock(t *testing.T) {
 	window := byte(1)
-	backend := &stateLockProbeBackend{}
+	backend := &stateLockProbeBackend{probeApply: true}
 	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "terminal"))
 	backend.stateLockIsFree = func() bool {
 		if !service.mu.TryLock() {
@@ -137,6 +137,42 @@ func TestBackendApplyDoesNotOwnReadableStateLock(t *testing.T) {
 	}
 	if !backend.observedFree {
 		t.Fatal("backend Apply ran while the compositor's readable state lock was held")
+	}
+}
+
+func TestShutdownAndDeliveryDoNotOwnReadableStateLockAcrossBackendCalls(t *testing.T) {
+	window := byte(1)
+	backend := &stateLockProbeBackend{probeApply: false}
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "terminal"))
+	backend.stateLockIsFree = func() bool {
+		if !service.mu.TryLock() {
+			return false
+		}
+		service.mu.Unlock()
+		return true
+	}
+	snapshot := Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
+		ID: "terminal-1", Generation: 1, Kind: "terminal",
+		Frame: Frame{Width: 100, Height: 80}, Visible: true, Alpha: 1,
+	}}}
+	if _, err := service.Commit(snapshot); err != nil {
+		t.Fatalf("seed terminal inventory: %v", err)
+	}
+
+	backend.probeDeliver = true
+	if _, err := service.Deliver("terminal-1", map[string]any{"verb": "state"}); err != nil {
+		t.Fatalf("deliver terminal state: %v", err)
+	}
+	if !backend.deliverObservedFree {
+		t.Fatal("backend Deliver ran while the compositor's readable state lock was held")
+	}
+
+	backend.probeApply = true
+	if _, _, err := service.Drain(); err != nil {
+		t.Fatalf("drain terminal inventory: %v", err)
+	}
+	if !backend.applyObservedFree {
+		t.Fatal("shutdown Apply ran while the compositor's readable state lock was held")
 	}
 }
 
@@ -167,16 +203,26 @@ type recordingBackend struct {
 }
 
 type stateLockProbeBackend struct {
-	stateLockIsFree func() bool
-	observedFree    bool
+	stateLockIsFree     func() bool
+	probeApply          bool
+	probeDeliver        bool
+	observedFree        bool
+	applyObservedFree   bool
+	deliverObservedFree bool
 }
 
 func (backend *stateLockProbeBackend) Deliver(string, map[string]any) (map[string]any, error) {
+	if backend.probeDeliver {
+		backend.deliverObservedFree = backend.stateLockIsFree()
+	}
 	return nil, nil
 }
 
 func (backend *stateLockProbeBackend) Apply(_ unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
-	backend.observedFree = backend.stateLockIsFree()
+	if backend.probeApply {
+		backend.observedFree = backend.stateLockIsFree()
+		backend.applyObservedFree = backend.observedFree
+	}
 	result := make([]AppliedSurface, len(snapshot.Surfaces))
 	for index, surface := range snapshot.Surfaces {
 		result[index] = AppliedSurface{ID: surface.ID, Generation: surface.Generation, Frame: surface.Frame, Visible: surface.Visible, Alpha: surface.Alpha, Layer: surface.Layer}
