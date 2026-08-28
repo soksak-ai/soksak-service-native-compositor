@@ -107,6 +107,39 @@ func TestCompositorDelegatesOpaqueSurfaceKindsToItsBackend(t *testing.T) {
 	}
 }
 
+// A backend may synchronously enter the platform UI thread. A pointer event on
+// that thread reads SurfaceAt, so holding the readable state lock while Apply
+// runs creates this cycle:
+//
+//   commit -> backend.Apply -> UI thread
+//   UI thread -> SurfaceAt -> state lock
+//
+// Apply is the foreign boundary. It may be serialised with other writes, but it
+// must never own the lock used by Status, SurfaceAt, History or Composition.
+func TestBackendApplyDoesNotOwnReadableStateLock(t *testing.T) {
+	window := byte(1)
+	backend := &stateLockProbeBackend{}
+	service := NewService(func(string) unsafe.Pointer { return unsafe.Pointer(&window) }, wiredFor(backend, "terminal"))
+	backend.stateLockIsFree = func() bool {
+		if !service.mu.TryLock() {
+			return false
+		}
+		service.mu.Unlock()
+		return true
+	}
+
+	_, err := service.Commit(Snapshot{Window: "win-a", Sequence: 1, Surfaces: []Surface{{
+		ID: "terminal-1", Generation: 1, Kind: "terminal",
+		Frame: Frame{Width: 100, Height: 80}, Visible: true, Alpha: 1,
+	}}})
+	if err != nil {
+		t.Fatalf("commit terminal inventory: %v", err)
+	}
+	if !backend.observedFree {
+		t.Fatal("backend Apply ran while the compositor's readable state lock was held")
+	}
+}
+
 func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 	backend := &recordingBackend{}
 	window := byte(1)
@@ -131,6 +164,24 @@ func TestServiceShutdownAppliesOneEmptyInventory(t *testing.T) {
 
 type recordingBackend struct {
 	snapshots []Snapshot
+}
+
+type stateLockProbeBackend struct {
+	stateLockIsFree func() bool
+	observedFree    bool
+}
+
+func (backend *stateLockProbeBackend) Deliver(string, map[string]any) (map[string]any, error) {
+	return nil, nil
+}
+
+func (backend *stateLockProbeBackend) Apply(_ unsafe.Pointer, snapshot Snapshot) ([]AppliedSurface, error) {
+	backend.observedFree = backend.stateLockIsFree()
+	result := make([]AppliedSurface, len(snapshot.Surfaces))
+	for index, surface := range snapshot.Surfaces {
+		result[index] = AppliedSurface{ID: surface.ID, Generation: surface.Generation, Frame: surface.Frame, Visible: surface.Visible, Alpha: surface.Alpha, Layer: surface.Layer}
+	}
+	return result, nil
 }
 
 func (backend *recordingBackend) Deliver(string, map[string]any) (map[string]any, error) {
