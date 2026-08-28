@@ -65,5 +65,10 @@ make verify
 ```
 
 `go.mod`, `.node-version`, and `package.json#packageManager` are the exact Go, Node, and pnpm owners.
+Preflight resolves pnpm from this repository root and judges the effective version reported there. It
+does not inspect a globally installed pnpm package behind the selected launcher.
 Make verifies only the public compositor service and DOM observer implementation; applications and
 native Backend implementations verify their own boundaries.
+
+The complete build rule is in [`docs/BUILD.md`](docs/BUILD.md). Completed changes are recorded in
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md); the changelog does not define current behavior.
