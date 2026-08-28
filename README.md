@@ -22,6 +22,11 @@ The application declares a browser host with public attributes:
 ></div>
 ```
 
+The Plugin owns `data-native-visible`. The host may add
+`data-native-capture-hidden="true"` while a document-only capture draws the surface's snapshot in
+the DOM. Effective visibility is declared visibility AND not capture-hidden. Removing the host
+attribute restores the unchanged Plugin declaration; capture never rewrites Plugin state.
+
 The frontend package observes declarations with `MutationObserver` and
 `ResizeObserver`, forms one full inventory snapshot, and calls an injected
 `commit(snapshot)` interface. It does not import Wails-generated bindings.

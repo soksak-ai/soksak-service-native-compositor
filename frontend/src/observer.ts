@@ -198,7 +198,7 @@ export function nativeSurfaceDOMRuntime(
         attributeFilter: [
           "class", "style", "hidden",
           "data-native-surface", "data-native-surface-id", "data-native-generation",
-          "data-native-source", "data-native-visible", "data-native-alpha", "data-native-layer",
+          "data-native-source", "data-native-visible", "data-native-capture-hidden", "data-native-alpha", "data-native-layer",
         ],
       });
       return () => observer.disconnect();

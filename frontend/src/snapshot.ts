@@ -90,7 +90,11 @@ export function collectNativeSurfaceSnapshot(
       generation,
       kind,
       frame,
-      visible: declaration.isConnected && declaration.dataset.nativeVisible !== "false" && frame.width > 0 && frame.height > 0,
+      visible: declaration.isConnected
+        && declaration.dataset.nativeVisible !== "false"
+        && declaration.dataset.nativeCaptureHidden !== "true"
+        && frame.width > 0
+        && frame.height > 0,
       alpha,
       layer,
       source,
