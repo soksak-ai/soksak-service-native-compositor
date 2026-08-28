@@ -39,6 +39,21 @@ The Go service exposes:
 A snapshot with a stale sequence is rejected without reaching the injected
 backend. The backend returns the complete applied inventory in one receipt.
 
+### Transaction and lock ownership
+
+`Commit`, `Deliver`, and `Drain` are backend-writer transactions and are
+serialised with each other. The lock protecting receipts, compositions,
+history, and hit-testing state is never held while resolving a native window or
+calling a backend. Those are foreign boundaries and may synchronously enter a
+platform UI thread; that thread must remain free to call `Status`, `Latest`, or
+`SurfaceAt` without forming a lock cycle.
+
+While a backend transaction is in progress, readers see the last completed
+snapshot. A successful backend result becomes the next completed snapshot in
+one state update. Backend implementations must not recursively invoke a writer
+transaction; they return their result through `Backend` and let the compositor
+publish it.
+
 The host application registers the service with Wails and injects the generated
 `Commit` binding into `startNativeSurfaceObserver`. No application-specific
 layout tree, component, or generated binding path exists in this package.
