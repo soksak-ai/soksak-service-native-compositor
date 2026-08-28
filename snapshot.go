@@ -131,6 +131,14 @@ type Backend interface {
 // window's first commit as stale behind the first window's tenth, and a shared
 // inventory answers a question about one window with every window's surfaces.
 type Service struct {
+	// backendMu serialises transactions that call a backend. Backends own
+	// foreign UI/process boundaries and are not required to be concurrent.
+	// Readers never take this lock: a platform callback must be able to read the
+	// last completed snapshot while the next one is applying.
+	backendMu sync.Mutex
+	// mu protects only in-process compositor state. It is never held across a
+	// window resolver or backend call; either may synchronously enter the UI
+	// thread, whose pointer callbacks read this state.
 	mu sync.Mutex
 	// windows resolves a window name to its native handle. Nil, or an unknown
 	// name, is "that window is not ready" — which is not the same as a window
@@ -305,9 +313,12 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if err := validateSnapshot(snapshot); err != nil {
 		return Receipt{}, err
 	}
+	service.backendMu.Lock()
+	defer service.backendMu.Unlock()
+
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	if service.stopped {
+		service.mu.Unlock()
 		return Receipt{}, fmt.Errorf("native surface service is shutting down")
 	}
 	// This window's counter. A counter shared with other windows answers this
@@ -315,20 +326,28 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 	if snapshot.Sequence <= service.latest[snapshot.Window].Sequence {
 		stale := service.latest[snapshot.Window]
 		stale.Accepted = false
+		service.mu.Unlock()
 		return stale, nil
 	}
-	handle := service.window(snapshot.Window)
-	if handle == nil {
-		return Receipt{}, fmt.Errorf("native surface window %s is not ready", snapshot.Window)
-	}
 	if len(service.backends) == 0 {
+		service.mu.Unlock()
 		return Receipt{}, fmt.Errorf("this compositor has no backend for any surface kind")
 	}
 	if kind, unplaceable := service.unplaceableLocked(snapshot); unplaceable {
+		service.mu.Unlock()
 		return Receipt{}, fmt.Errorf(
 			"native surface kind %q has no backend in this build — a surface nobody can place is "+
 				"refused here rather than left out of the answer, where it reads as a pane that drew nothing",
 			kind)
+	}
+	service.mu.Unlock()
+
+	// Resolving a window and applying a backend may synchronously enter AppKit.
+	// The last completed snapshot stays readable for pointer/focus callbacks
+	// throughout that foreign transaction.
+	handle := service.window(snapshot.Window)
+	if handle == nil {
+		return Receipt{}, fmt.Errorf("native surface window %s is not ready", snapshot.Window)
 	}
 	// Stamped before the work, against the same wall clock the document used.
 	carriedMs := float64(-1)
@@ -343,10 +362,12 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		// A refused attempt is recorded rather than forgotten. Without it the
 		// last healthy inventory keeps answering, and every reading reports a
 		// healthy native layer.
+		service.mu.Lock()
 		failed := service.committed[snapshot.Window]
 		failed.failure = err.Error()
 		failed.failedSequence = snapshot.Sequence
 		service.committed[snapshot.Window] = failed
+		service.mu.Unlock()
 		return Receipt{}, err
 	}
 	// The one coordinate the backend cannot restate: which window the surface is
@@ -366,10 +387,12 @@ func (service *Service) Commit(snapshot Snapshot) (Receipt, error) {
 		AppliedMs:       appliedMs,
 		CarriedMs:       carriedMs,
 	}
+	service.mu.Lock()
 	service.latest[snapshot.Window] = receipt
 	commit := windowCommit{declared: snapshot, applied: receipt}
 	service.committed[snapshot.Window] = commit
 	service.appendHistoryLocked(snapshot.Window, commit)
+	service.mu.Unlock()
 	return receipt, nil
 }
 
@@ -395,9 +418,12 @@ func (service *Service) Status(window string) Receipt {
 // holds one the compositor does not know about — the undeclared surface a ledger-only check never
 // sees, because the ledger is what it walks.
 func (service *Service) Deliver(id string, message map[string]any) (map[string]any, error) {
+	service.backendMu.Lock()
+	defer service.backendMu.Unlock()
+
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	if service.stopped {
+		service.mu.Unlock()
 		return nil, fmt.Errorf("native surface %s cannot be driven: this compositor has shut down", id)
 	}
 	// Every window's inventory. A surface id is unique across the application,
@@ -411,18 +437,22 @@ func (service *Service) Deliver(id string, message map[string]any) (map[string]a
 			// stated. An applied surface reports where it landed and not what it is.
 			kind, declared := service.kindOfLocked(id)
 			if !declared {
+				service.mu.Unlock()
 				return nil, fmt.Errorf(
 					"native surface %s was applied and no declaration names its kind — nothing can "+
 						"be told which backend it belongs to", id)
 			}
 			backend, wired := service.backends[kind]
 			if !wired {
+				service.mu.Unlock()
 				return nil, fmt.Errorf(
 					"native surface %s is of kind %q and this build has no backend for it", id, kind)
 			}
+			service.mu.Unlock()
 			return backend.Deliver(id, message)
 		}
 	}
+	service.mu.Unlock()
 	return nil, fmt.Errorf("native surface %s is in no window's applied inventory", id)
 }
 
@@ -449,10 +479,14 @@ func (service *Service) ServiceShutdown() error {
 // handle to be emptied — a drain that refused on an already-closed window would
 // leave the windows after it in the map still holding surfaces.
 func (service *Service) Drain() (drained int, remaining int, err error) {
+	service.backendMu.Lock()
+	defer service.backendMu.Unlock()
+
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	if service.stopped {
-		return 0, service.heldLocked(), nil
+		remaining = service.heldLocked()
+		service.mu.Unlock()
+		return 0, remaining, nil
 	}
 	service.stopped = true
 
@@ -462,20 +496,25 @@ func (service *Service) Drain() (drained int, remaining int, err error) {
 	for name := range service.latest {
 		names = append(names, name)
 	}
+	receipts := make(map[string]Receipt, len(names))
+	for _, name := range names {
+		receipts[name] = service.latest[name]
+	}
+	service.mu.Unlock()
 	sort.Strings(names)
 
 	for _, name := range names {
-		receipt := service.latest[name]
+		receipt := receipts[name]
 		if len(receipt.Surfaces) == 0 {
 			continue
 		}
 		handle := service.window(name)
 		if handle == nil {
-			return drained, service.heldLocked(),
+			return drained, service.held(),
 				fmt.Errorf("native surface window %s is unavailable during shutdown", name)
 		}
 		if len(service.backends) == 0 {
-			return drained, service.heldLocked(),
+			return drained, service.held(),
 				fmt.Errorf("this compositor has no backend for any surface kind during shutdown")
 		}
 		sequence := receipt.Sequence + 1
@@ -484,20 +523,28 @@ func (service *Service) Drain() (drained int, remaining int, err error) {
 		// surfaces on a window the application is done with.
 		applied, applyErr := service.applyByKind(handle, Snapshot{Window: name, Sequence: sequence})
 		if applyErr != nil {
-			return drained, service.heldLocked(), applyErr
+			return drained, service.held(), applyErr
 		}
 		if len(applied) != 0 {
-			return drained, service.heldLocked(),
+			return drained, service.held(),
 				fmt.Errorf("native surface shutdown inventory for %s is not empty: %d", name, len(applied))
 		}
 		drained += len(receipt.Surfaces)
 		receipt = Receipt{Sequence: sequence, Accepted: true, Surfaces: []AppliedSurface{}, AppliedAtUnixMs: float64(time.Now().UnixNano()) / 1e6}
+		service.mu.Lock()
 		service.latest[name] = receipt
 		commit := windowCommit{declared: Snapshot{Window: name, Sequence: sequence}, applied: receipt}
 		service.committed[name] = commit
 		service.appendHistoryLocked(name, commit)
+		service.mu.Unlock()
 	}
-	return drained, service.heldLocked(), nil
+	return drained, service.held(), nil
+}
+
+func (service *Service) held() int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.heldLocked()
 }
 
 // heldLocked counts the surfaces still in every window's applied inventory. The
