@@ -5,6 +5,9 @@ README and the other documents in this directory.
 
 ## 2026-08-28
 
+- DOM snapshots now conjoin a surface's own visibility with every ancestor
+  `data-surface-visible` declaration. Inactive terminal surfaces can no longer cover active browser
+  chrome; mutation observation commits both visibility edges.
 - Compositor transactions no longer hold the state mutex while calling a native backend or
   resolving a window. Backend writes are serialized independently, which removes the AppKit main
   thread and compositor worker lock cycle. Go race tests and frontend observer tests passed.

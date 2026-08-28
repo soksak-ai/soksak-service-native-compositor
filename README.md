@@ -22,10 +22,12 @@ The application declares a browser host with public attributes:
 ></div>
 ```
 
-The Plugin owns `data-native-visible`. The host may add
+The Plugin owns its intrinsic `data-native-visible`. The host owns layout presentation through
+`data-surface-visible` on any ancestor of the declaration. Effective visibility is the conjunction
+of the Plugin declaration and every host ancestor; an inactive tab therefore cannot leave its
+surface over the active tab's DOM. The host may also add
 `data-native-capture-hidden="true"` while a document-only capture draws the surface's snapshot in
-the DOM. Effective visibility is declared visibility AND not capture-hidden. Removing the host
-attribute restores the unchanged Plugin declaration; capture never rewrites Plugin state.
+the DOM. Capture visibility is a final conjunction and never rewrites Plugin state.
 
 The frontend package observes declarations with `MutationObserver` and
 `ResizeObserver`, forms one full inventory snapshot, and calls an injected
