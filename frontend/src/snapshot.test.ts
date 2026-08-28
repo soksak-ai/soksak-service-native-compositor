@@ -40,6 +40,14 @@ describe("declarative native surface inventory", () => {
     const element = declaration("custom", 1, { left: 0, top: 0, width: 10, height: 10 }, "project-native-kind");
     expect(collectNativeSurfaceSnapshot([element], 1, "win-a").surfaces[0].kind).toBe("project-native-kind");
   });
+
+  it("keeps Plugin visibility declared while a host capture lease hides presentation", () => {
+    const element = declaration("capture", 1, { left: 0, top: 0, width: 10, height: 10 });
+    element.dataset.nativeVisible = "true";
+    element.dataset.nativeCaptureHidden = "true";
+    expect(collectNativeSurfaceSnapshot([element], 1, "win-a").surfaces[0].visible).toBe(false);
+    expect(element.dataset.nativeVisible).toBe("true");
+  });
 });
 
 // The fixture is built from real attributes, not from a hand-written dataset.
