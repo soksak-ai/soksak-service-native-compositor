@@ -69,15 +69,18 @@ describe("native surface observer", () => {
     // restore the old visibility between the staged receipt and that DOM commit.
     mutation({ inventoryChanged: false });
     await Promise.resolve();
+    await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
 
     // Once DOM reaches the staged decision it regains ownership. A later DOM change is ordinary.
     domVisible = false;
     mutation({ inventoryChanged: false });
     await Promise.resolve();
+    await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
     domVisible = true;
     mutation({ inventoryChanged: false });
+    await Promise.resolve();
     await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(true);
     controller.stop();
