@@ -71,6 +71,7 @@ export function startNativeSurfaceObserver(
     resolve: (receipt: NativeSurfaceReceipt) => void;
     reject: (error: unknown) => void;
   }> = [];
+  let presentationLease: NativeSurfacePresentation | null = null;
   let stopResize: () => void = () => {};
   let stopMove: () => void = () => {};
 
@@ -97,13 +98,18 @@ export function startNativeSurfaceObserver(
     const presentationStage = presentationStages.shift() ?? null;
     dirty = false;
     running = true;
-    const declarations = runtime.declarations();
+    const declarations = [...runtime.declarations()];
+    if (presentationStage === null && presentationLease && declarations.every((declaration) => (
+      presentationLease!(declaration) === runtime.presentationVisible(declaration)
+    ))) {
+      presentationLease = null;
+    }
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
     const snapshot = collectNativeSurfaceSnapshot(
       declarations,
       ++sequence,
       window,
-      presentationStage?.visible ?? runtime.presentationVisible,
+      presentationStage?.visible ?? presentationLease ?? runtime.presentationVisible,
       snapshotInteractive,
     );
     // What was declared, written back on the element that declared it. Without it the document can
@@ -122,6 +128,7 @@ export function startNativeSurfaceObserver(
       if (receipt.accepted && receipt.sequence === snapshot.sequence) {
         committedSequence = receipt.sequence;
         error = null;
+        if (presentationStage) presentationLease = presentationStage.visible;
         presentationStage?.resolve(receipt);
       } else {
         error = new Error(`native surface commit rejected: requested=${snapshot.sequence} received=${receipt.sequence}`);
@@ -162,6 +169,7 @@ export function startNativeSurfaceObserver(
       if (stopped) return;
       stopped = true;
       dirty = false;
+      presentationLease = null;
       stopMutation();
       stopResize();
       stopMove();
