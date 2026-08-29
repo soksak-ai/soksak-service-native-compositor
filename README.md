@@ -37,7 +37,9 @@ The observer controller exposes `stagePresentation(predicate)` for a host transa
 apply visibility before publishing the matching DOM state. Staging uses the observer's sequence and
 serialized writer, reads the current declarations and geometry, and resolves only with the actual
 commit receipt. A later DOM mutation confirms the staged inventory through the ordinary observer
-path. Applications pass the predicate; this package does not read a layout tree or view id.
+path. Until that confirmation, unrelated mutations and interactive edges reuse the staged
+presentation predicate and cannot restore the previous DOM visibility. Applications pass the
+predicate; this package does not read a layout tree or view id.
 
 The Go service exposes:
 

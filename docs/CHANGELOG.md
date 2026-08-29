@@ -8,6 +8,9 @@ README and the other documents in this directory.
 - The frontend observer can stage a host presentation inventory before the matching DOM commit.
   Staging shares the normal sequence and serialized writer and returns the real compositor receipt.
   Owner frontend tests and `make verify` passed.
+- A staged presentation remains leased through unrelated observer flushes until the ordinary DOM
+  predicate converges. This prevents an interactive edge from restoring the departing surface
+  between the staged receipt and the DOM commit.
 
 ## 2026-08-28
 
