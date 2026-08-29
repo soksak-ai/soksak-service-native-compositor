@@ -3,6 +3,12 @@
 This file records completed changes and their verification. Current rules are defined by the
 README and the other documents in this directory.
 
+## 2026-08-29
+
+- The frontend observer can stage a host presentation inventory before the matching DOM commit.
+  Staging shares the normal sequence and serialized writer and returns the real compositor receipt.
+  Owner frontend tests and `make verify` passed.
+
 ## 2026-08-28
 
 - DOM snapshots now conjoin a surface's own visibility with every ancestor

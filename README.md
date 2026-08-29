@@ -33,6 +33,12 @@ The frontend package observes declarations with `MutationObserver` and
 `ResizeObserver`, forms one full inventory snapshot, and calls an injected
 `commit(snapshot)` interface. It does not import Wails-generated bindings.
 
+The observer controller exposes `stagePresentation(predicate)` for a host transaction that must
+apply visibility before publishing the matching DOM state. Staging uses the observer's sequence and
+serialized writer, reads the current declarations and geometry, and resolves only with the actual
+commit receipt. A later DOM mutation confirms the staged inventory through the ordinary observer
+path. Applications pass the predicate; this package does not read a layout tree or view id.
+
 The Go service exposes:
 
 - `Commit(Snapshot) (Receipt, error)` — the only native writer;
