@@ -42,10 +42,12 @@ describe("native surface observer", () => {
   it("stages a presentation inventory before the DOM declaration changes", async () => {
     const element = declaration("browser", () => 0);
     const committed: NativeSurfaceSnapshot[] = [];
+    let domVisible = true;
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
     const controller = startNativeSurfaceObserver({
       declarations: () => [element],
-      presentationVisible: () => true,
-      observeMutations: () => () => undefined,
+      presentationVisible: () => domVisible,
+      observeMutations: (callback) => { mutation = callback; return () => undefined; },
       observeResizes: () => () => undefined,
       observeMoves: () => () => undefined,
       schedule: queueMicrotask,
@@ -62,6 +64,22 @@ describe("native surface observer", () => {
     expect(receipt).toMatchObject({ accepted: true });
     expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
     expect(committed.at(-1)?.sequence).toBeGreaterThan(committed[0].sequence);
+
+    // An interactive edge or unrelated mutation before React publishes the target DOM cannot
+    // restore the old visibility between the staged receipt and that DOM commit.
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+
+    // Once DOM reaches the staged decision it regains ownership. A later DOM change is ordinary.
+    domVisible = false;
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+    domVisible = true;
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(true);
     controller.stop();
   });
 
