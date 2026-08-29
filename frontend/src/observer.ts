@@ -8,6 +8,7 @@ export type NativeSurfaceReceipt = {
 
 export type NativeSurfaceCommit = (snapshot: NativeSurfaceSnapshot) => Promise<NativeSurfaceReceipt>;
 export type NativeSurfaceMutation = { inventoryChanged: boolean };
+export type NativeSurfacePresentation = (declaration: NativeSurfaceDeclaration) => boolean;
 export type NativeSurfaceObserverRuntime = {
   declarations(): Iterable<NativeSurfaceDeclaration>;
   /** Conjoins a surface's own declaration with the host layout presentation state. */
@@ -31,6 +32,8 @@ export type NativeSurfaceObserverRuntime = {
 export type NativeSurfaceObserverController = {
   /** Publish the explicit begin/end edge of an interactive layout phase. */
   setInteractive(active: boolean): void;
+  /** Applies a host presentation decision before the DOM declaration publishes that decision. */
+  stagePresentation(visible: NativeSurfacePresentation): Promise<NativeSurfaceReceipt>;
   stop(): void;
   status(): { sequence: number; committedSequence: number; running: boolean; dirty: boolean; error: unknown };
 };
@@ -63,15 +66,23 @@ export function startNativeSurfaceObserver(
   // begin and end while one commit is in flight would make the native owner see two inactive
   // snapshots and no interactive phase at all.
   const interactiveEdges: boolean[] = [];
+  const presentationStages: Array<{
+    visible: NativeSurfacePresentation;
+    resolve: (receipt: NativeSurfaceReceipt) => void;
+    reject: (error: unknown) => void;
+  }> = [];
   let stopResize: () => void = () => {};
   let stopMove: () => void = () => {};
 
-  const schedule = () => {
+  const requestFlush = () => {
     if (stopped) return;
-    dirty = true;
     if (scheduled || running) return;
     scheduled = true;
     runtime.schedule(() => { void flush(); });
+  };
+  const schedule = () => {
+    dirty = true;
+    requestFlush();
   };
   const refreshResizeOwner = () => {
     stopResize();
@@ -82,7 +93,8 @@ export function startNativeSurfaceObserver(
   };
   const flush = async () => {
     scheduled = false;
-    if (stopped || running || !dirty) return;
+    if (stopped || running || (!dirty && presentationStages.length === 0 && interactiveEdges.length === 0)) return;
+    const presentationStage = presentationStages.shift() ?? null;
     dirty = false;
     running = true;
     const declarations = runtime.declarations();
@@ -91,7 +103,7 @@ export function startNativeSurfaceObserver(
       declarations,
       ++sequence,
       window,
-      runtime.presentationVisible,
+      presentationStage?.visible ?? runtime.presentationVisible,
       snapshotInteractive,
     );
     // What was declared, written back on the element that declared it. Without it the document can
@@ -110,14 +122,17 @@ export function startNativeSurfaceObserver(
       if (receipt.accepted && receipt.sequence === snapshot.sequence) {
         committedSequence = receipt.sequence;
         error = null;
+        presentationStage?.resolve(receipt);
       } else {
         error = new Error(`native surface commit rejected: requested=${snapshot.sequence} received=${receipt.sequence}`);
+        presentationStage?.reject(error);
       }
     } catch (cause) {
       error = cause;
+      presentationStage?.reject(cause);
     } finally {
       running = false;
-      if ((dirty || interactiveEdges.length > 0) && !stopped) schedule();
+      if ((dirty || interactiveEdges.length > 0 || presentationStages.length > 0) && !stopped) requestFlush();
     }
   };
 
@@ -136,6 +151,13 @@ export function startNativeSurfaceObserver(
       interactiveEdges.push(active);
       schedule();
     },
+    stagePresentation(visible) {
+      if (stopped) return Promise.reject(new Error("native surface observer is stopped"));
+      return new Promise<NativeSurfaceReceipt>((resolve, reject) => {
+        presentationStages.push({ visible, resolve, reject });
+        requestFlush();
+      });
+    },
     stop() {
       if (stopped) return;
       stopped = true;
@@ -143,6 +165,9 @@ export function startNativeSurfaceObserver(
       stopMutation();
       stopResize();
       stopMove();
+      for (const stage of presentationStages.splice(0)) {
+        stage.reject(new Error("native surface observer stopped before presentation staging"));
+      }
     },
     status: () => ({ sequence, committedSequence, running, dirty, error }),
   };
