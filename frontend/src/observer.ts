@@ -104,6 +104,7 @@ export function startNativeSurfaceObserver(
     ))) {
       presentationLease = null;
     }
+    const hadInteractiveEdge = interactiveEdges.length > 0;
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
     const snapshot = collectNativeSurfaceSnapshot(
       declarations,
@@ -130,6 +131,15 @@ export function startNativeSurfaceObserver(
         error = null;
         if (presentationStage) presentationLease = presentationStage.visible;
         presentationStage?.resolve(receipt);
+      } else if (!receipt.accepted && receipt.sequence >= snapshot.sequence) {
+        // A renderer reload replaces the document observer but not the window-owned compositor.
+        // Its first local sequence can therefore be stale. The refusal carries the authoritative
+        // floor; replay this exact inventory above it instead of freezing the new observer.
+        sequence = receipt.sequence;
+        dirty = true;
+        error = null;
+        if (presentationStage) presentationStages.unshift(presentationStage);
+        if (hadInteractiveEdge) interactiveEdges.unshift(snapshotInteractive);
       } else {
         error = new Error(`native surface commit rejected: requested=${snapshot.sequence} received=${receipt.sequence}`);
         presentationStage?.reject(error);

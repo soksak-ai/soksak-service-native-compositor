@@ -248,6 +248,34 @@ describe("native surface observer", () => {
     controller.stop();
   });
 
+  it("adopts a newer backend sequence and replays the current inventory after renderer reload", async () => {
+    const element = declaration("terminal", () => 0);
+    const commits: NativeSurfaceSnapshot[] = [];
+    const recovered = deferred();
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      presentationVisible: () => true,
+      observeMutations: () => () => undefined,
+      observeResizes: () => () => undefined,
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => {
+      commits.push(snapshot);
+      if (commits.length === 1) return { sequence: 23, accepted: false, surfaces: [] };
+      recovered.resolve();
+      return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
+    }, "win-a", 14);
+
+    await recovered.promise;
+    await Promise.resolve();
+    expect(commits.map((snapshot) => snapshot.sequence)).toEqual([15, 24]);
+    expect(commits[1].surfaces.map((surface) => surface.id)).toEqual(["terminal"]);
+    expect(controller.status()).toMatchObject({
+      sequence: 24, committedSequence: 24, dirty: false, error: null,
+    });
+    controller.stop();
+  });
+
   it("disconnects both event owners and publishes no later snapshot after stop", async () => {
     const element = declaration("browser", () => 0);
     let mutation!: (change: { inventoryChanged: boolean }) => void;
