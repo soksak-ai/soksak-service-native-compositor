@@ -265,7 +265,7 @@ func (service *Service) window(name string) unsafe.Pointer {
 	return service.windows(name)
 }
 
-func (service *Service) ServiceName() string { return "wails-service-native-compositor" }
+func (service *Service) ServiceName() string { return "soksak-service-native-compositor" }
 
 func validFrame(frame Frame) bool {
 	values := []float64{frame.X, frame.Y, frame.Width, frame.Height}

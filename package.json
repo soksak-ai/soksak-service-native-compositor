@@ -1,5 +1,5 @@
 {
-  "name": "@min-median-max/wails-service-native-compositor",
+  "name": "@soksak/soksak-service-native-compositor",
   "version": "0.0.1",
   "private": true,
   "engines": {
@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/min-median-max/wails-service-native-compositor.git"
+    "url": "git+https://github.com/soksak-ai/soksak-service-native-compositor.git"
   },
   "exports": {
     ".": "./frontend/src/index.ts"

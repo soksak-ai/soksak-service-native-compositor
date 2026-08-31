@@ -1,6 +1,6 @@
-# Wails Native Compositor
+# Soksak Native Compositor
 
-`wails-service-native-compositor` makes DOM-declared native child surfaces follow one
+`soksak-service-native-compositor` makes DOM-declared native child surfaces follow one
 validated inventory contract. Applications declare surfaces; this package owns
 observation, sequencing, stale rejection, and applied receipts. A native
 surface plugin implements the public Go `Backend` interface and owns its native
