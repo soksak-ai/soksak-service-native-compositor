@@ -1,4 +1,9 @@
-import { collectNativeSurfaceSnapshot, type NativeSurfaceDeclaration, type NativeSurfaceSnapshot } from "./snapshot";
+import {
+  collectNativeSurfaceSnapshot,
+  type NativeSurfaceDeclaration,
+  type NativeSurfaceFrame,
+  type NativeSurfaceSnapshot,
+} from "./snapshot";
 
 export type NativeSurfaceReceipt = {
   sequence: number;
@@ -34,6 +39,8 @@ export type NativeSurfaceObserverController = {
   setInteractive(active: boolean): void;
   /** Applies a host presentation decision before the DOM declaration publishes that decision. */
   stagePresentation(visible: NativeSurfacePresentation): Promise<NativeSurfaceReceipt>;
+  /** Applies target rectangles before the document publishes the matching layout commit. */
+  stageGeometry(frames: ReadonlyMap<string, NativeSurfaceFrame>): Promise<NativeSurfaceReceipt>;
   stop(): void;
   status(): { sequence: number; committedSequence: number; running: boolean; dirty: boolean; error: unknown };
 };
@@ -71,7 +78,13 @@ export function startNativeSurfaceObserver(
     resolve: (receipt: NativeSurfaceReceipt) => void;
     reject: (error: unknown) => void;
   }> = [];
+  const geometryStages: Array<{
+    frames: ReadonlyMap<string, NativeSurfaceFrame>;
+    resolve: (receipt: NativeSurfaceReceipt) => void;
+    reject: (error: unknown) => void;
+  }> = [];
   let presentationLease: NativeSurfacePresentation | null = null;
+  let geometryLease: ReadonlyMap<string, NativeSurfaceFrame> | null = null;
   let stopResize: () => void = () => {};
   let stopMove: () => void = () => {};
 
@@ -94,8 +107,10 @@ export function startNativeSurfaceObserver(
   };
   const flush = async () => {
     scheduled = false;
-    if (stopped || running || (!dirty && presentationStages.length === 0 && interactiveEdges.length === 0)) return;
+    if (stopped || running || (!dirty && presentationStages.length === 0
+      && geometryStages.length === 0 && interactiveEdges.length === 0)) return;
     const presentationStage = presentationStages.shift() ?? null;
+    const geometryStage = geometryStages.shift() ?? null;
     dirty = false;
     running = true;
     const declarations = [...runtime.declarations()];
@@ -103,6 +118,16 @@ export function startNativeSurfaceObserver(
       presentationLease!(declaration) === runtime.presentationVisible(declaration)
     ))) {
       presentationLease = null;
+    }
+    if (geometryStage === null && geometryLease && declarations.every((declaration) => {
+      const id = declaration.dataset.nativeSurfaceId ?? "";
+      const target = geometryLease!.get(id);
+      if (!target) return true;
+      const rect = declaration.getBoundingClientRect();
+      return rect.left === target.x && rect.top === target.y
+        && rect.width === target.width && rect.height === target.height;
+    })) {
+      geometryLease = null;
     }
     const hadInteractiveEdge = interactiveEdges.length > 0;
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
@@ -112,6 +137,10 @@ export function startNativeSurfaceObserver(
       window,
       presentationStage?.visible ?? presentationLease ?? runtime.presentationVisible,
       snapshotInteractive,
+      (declaration, measured) => {
+        const id = declaration.dataset.nativeSurfaceId ?? "";
+        return geometryStage?.frames.get(id) ?? geometryLease?.get(id) ?? measured;
+      },
     );
     // What was declared, written back on the element that declared it. Without it the document can
     // be asked where a surface should be and the native layer where it is, and nothing can be asked
@@ -130,7 +159,9 @@ export function startNativeSurfaceObserver(
         committedSequence = receipt.sequence;
         error = null;
         if (presentationStage) presentationLease = presentationStage.visible;
+        if (geometryStage) geometryLease = geometryStage.frames;
         presentationStage?.resolve(receipt);
+        geometryStage?.resolve(receipt);
       } else if (!receipt.accepted && receipt.sequence >= snapshot.sequence) {
         // A renderer reload replaces the document observer but not the window-owned compositor.
         // Its first local sequence can therefore be stale. The refusal carries the authoritative
@@ -139,17 +170,21 @@ export function startNativeSurfaceObserver(
         dirty = true;
         error = null;
         if (presentationStage) presentationStages.unshift(presentationStage);
+        if (geometryStage) geometryStages.unshift(geometryStage);
         if (hadInteractiveEdge) interactiveEdges.unshift(snapshotInteractive);
       } else {
         error = new Error(`native surface commit rejected: requested=${snapshot.sequence} received=${receipt.sequence}`);
         presentationStage?.reject(error);
+        geometryStage?.reject(error);
       }
     } catch (cause) {
       error = cause;
       presentationStage?.reject(cause);
+      geometryStage?.reject(cause);
     } finally {
       running = false;
-      if ((dirty || interactiveEdges.length > 0 || presentationStages.length > 0) && !stopped) requestFlush();
+      if ((dirty || interactiveEdges.length > 0 || presentationStages.length > 0
+        || geometryStages.length > 0) && !stopped) requestFlush();
     }
   };
 
@@ -175,16 +210,38 @@ export function startNativeSurfaceObserver(
         requestFlush();
       });
     },
+    stageGeometry(frames) {
+      if (stopped) return Promise.reject(new Error("native surface observer is stopped"));
+      const declared = new Set(Array.from(runtime.declarations(), (declaration) => (
+        declaration.dataset.nativeSurfaceId ?? ""
+      )));
+      for (const [id, frame] of frames) {
+        if (!declared.has(id)) {
+          return Promise.reject(new Error(`native surface geometry target is not declared: ${id}`));
+        }
+        if (Object.values(frame).some((value) => !Number.isFinite(value) || value < 0)) {
+          return Promise.reject(new Error(`native surface geometry target is invalid: ${id}`));
+        }
+      }
+      return new Promise<NativeSurfaceReceipt>((resolve, reject) => {
+        geometryStages.push({ frames: new Map(frames), resolve, reject });
+        requestFlush();
+      });
+    },
     stop() {
       if (stopped) return;
       stopped = true;
       dirty = false;
       presentationLease = null;
+      geometryLease = null;
       stopMutation();
       stopResize();
       stopMove();
       for (const stage of presentationStages.splice(0)) {
         stage.reject(new Error("native surface observer stopped before presentation staging"));
+      }
+      for (const stage of geometryStages.splice(0)) {
+        stage.reject(new Error("native surface observer stopped before geometry staging"));
       }
     },
     status: () => ({ sequence, committedSequence, running, dirty, error }),

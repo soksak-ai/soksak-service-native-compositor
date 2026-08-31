@@ -39,6 +39,67 @@ function deferred() {
 }
 
 describe("native surface observer", () => {
+  it("applies staged geometry until the document publishes the same rectangle", async () => {
+    let left = 0;
+    const element = declaration("browser", () => left);
+    let resize!: () => void;
+    const committed: NativeSurfaceSnapshot[] = [];
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      presentationVisible: () => true,
+      observeMutations: () => () => undefined,
+      observeResizes: (_declarations, callback) => { resize = callback; return () => undefined; },
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => {
+      committed.push(snapshot);
+      return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
+    }, "win-a");
+
+    await Promise.resolve();
+    const target = { x: 120, y: 0, width: 400, height: 600 };
+    await controller.stageGeometry(new Map([["browser", target]]));
+    expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
+
+    // An unrelated resize cannot restore the measured departure rectangle while the target DOM
+    // commit is pending.
+    resize();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
+
+    left = 120;
+    resize();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
+
+    left = 180;
+    resize();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].frame.x).toBe(180);
+    controller.stop();
+  });
+
+  it("rejects a geometry target that the document did not declare", async () => {
+    const element = declaration("browser", () => 0);
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      presentationVisible: () => true,
+      observeMutations: () => () => undefined,
+      observeResizes: () => () => undefined,
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => ({ sequence: snapshot.sequence, accepted: true, surfaces: [] }), "win-a");
+    await Promise.resolve();
+
+    await expect(controller.stageGeometry(new Map([[
+      "missing", { x: 0, y: 0, width: 10, height: 10 },
+    ]]))).rejects.toThrow("native surface geometry target is not declared: missing");
+    controller.stop();
+  });
+
   it("stages a presentation inventory before the DOM declaration changes", async () => {
     const element = declaration("browser", () => 0);
     const committed: NativeSurfaceSnapshot[] = [];

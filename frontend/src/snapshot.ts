@@ -44,6 +44,7 @@ export function collectNativeSurfaceSnapshot(
   window: string,
   presentationVisible: (declaration: NativeSurfaceDeclaration) => boolean,
   interactive = false,
+  frameFor?: (declaration: NativeSurfaceDeclaration, measured: NativeSurfaceFrame) => NativeSurfaceFrame,
 ): NativeSurfaceSnapshot {
   // Refused, never defaulted. The Go half refuses it too, and a default here would answer that
   // refusal with a name the document did not choose.
@@ -82,7 +83,8 @@ export function collectNativeSurfaceSnapshot(
     }
     seen.add(id);
     const rect = declaration.getBoundingClientRect();
-    const frame = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    const measured = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    const frame = frameFor?.(declaration, measured) ?? measured;
     if (Object.values(frame).some((value) => !Number.isFinite(value) || value < 0)) {
       throw new Error(`native surface frame is invalid: ${id}`);
     }
