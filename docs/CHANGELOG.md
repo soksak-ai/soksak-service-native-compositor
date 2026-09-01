@@ -3,6 +3,12 @@
 This file records completed changes and their verification. Current rules are defined by the
 README and the other documents in this directory.
 
+## 2026-09-01
+
+- A staged visible presentation is now conjoined with the current DOM visibility predicate. A
+  later modal/overlay hide cannot be resurrected by an earlier layout lease. The observer RED case,
+  frontend tests, and typecheck pass.
+
 ## 2026-08-29
 
 - The frontend observer can stage a host presentation inventory before the matching DOM commit.

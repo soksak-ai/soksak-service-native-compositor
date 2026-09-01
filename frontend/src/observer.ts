@@ -131,11 +131,21 @@ export function startNativeSurfaceObserver(
     }
     const hadInteractiveEdge = interactiveEdges.length > 0;
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
+    // A staged presentation is an early target, not a second owner of visibility. The DOM host
+    // remains the final gate: an overlay may hide a surface after a layout stage requested it
+    // visible, and that hide must reach the same commit rather than being resurrected by the old
+    // lease. Staging may only further restrict what the host currently presents.
+    const stagedPresentation = presentationStage?.visible ?? presentationLease;
+    const presentation = stagedPresentation === null
+      ? runtime.presentationVisible
+      : (declaration: NativeSurfaceDeclaration) => (
+        stagedPresentation(declaration) && runtime.presentationVisible(declaration)
+      );
     const snapshot = collectNativeSurfaceSnapshot(
       declarations,
       ++sequence,
       window,
-      presentationStage?.visible ?? presentationLease ?? runtime.presentationVisible,
+      presentation,
       snapshotInteractive,
       (declaration, measured) => {
         const id = declaration.dataset.nativeSurfaceId ?? "";

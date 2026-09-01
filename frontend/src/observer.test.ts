@@ -147,6 +147,34 @@ describe("native surface observer", () => {
     controller.stop();
   });
 
+  it("lets a later DOM hide override an earlier staged visible lease", async () => {
+    const element = declaration("browser", () => 0);
+    const committed: NativeSurfaceSnapshot[] = [];
+    let domVisible = true;
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      presentationVisible: () => domVisible,
+      observeMutations: (callback) => { mutation = callback; return () => undefined; },
+      observeResizes: () => () => undefined,
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => {
+      committed.push(snapshot);
+      return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
+    }, "win-a");
+
+    await Promise.resolve();
+    await controller.stagePresentation(() => true);
+    domVisible = false;
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+    controller.stop();
+  });
+
   // Interactive layout is an explicit edge owned by the layout system. The compositor must not
   // infer it from a burst of rectangle changes: that would turn timing into policy and would miss
   // a pointer-down whose first geometry change has not happened yet.
