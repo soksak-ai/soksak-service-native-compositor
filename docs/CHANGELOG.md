@@ -3,6 +3,14 @@
 This file records completed changes and their verification. Current rules are defined by the
 README and the other documents in this directory.
 
+## 2026-09-05
+
+- A staged geometry lease ends when the caller reports the DOM layout published
+  (`releaseGeometry`), and the release commits the measured rectangles. The lease used to end when
+  every addressed declaration reported the staged rectangle exactly, which a document that lays the
+  declaring element out to whole pixels never does; the surface stayed at the staged rectangle
+  through every later layout. Observer RED case, frontend tests, and typecheck pass. Version 0.0.4.
+
 ## 2026-09-01
 
 - A staged visible presentation is now conjoined with the current DOM visibility predicate. A

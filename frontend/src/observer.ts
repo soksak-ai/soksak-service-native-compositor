@@ -39,8 +39,24 @@ export type NativeSurfaceObserverController = {
   setInteractive(active: boolean): void;
   /** Applies a host presentation decision before the DOM declaration publishes that decision. */
   stagePresentation(visible: NativeSurfacePresentation): Promise<NativeSurfaceReceipt>;
-  /** Applies target rectangles before the document publishes the matching layout commit. */
+  /**
+   * Applies target rectangles before the document publishes the matching layout commit.
+   *
+   * The rectangles stand through every flush until `releaseGeometry`; a flush in between measures
+   * the departure layout, and a surface at the departure rectangle over a document that is about
+   * to move is the flash this staging exists to remove.
+   */
   stageGeometry(frames: ReadonlyMap<string, NativeSurfaceFrame>): Promise<NativeSurfaceReceipt>;
+  /**
+   * The document has published the layout the staged rectangles were for. From here the
+   * measured rectangles own the surfaces again, in a flush this call schedules.
+   *
+   * The end of the lease is the caller's word, never a measurement. Measured 2026-09-05: a
+   * rectangle staged at a width of 160.26 was laid out 160 wide by the document, and a lease that
+   * waited for the two to agree held the surface at the staged rectangle for the rest of the
+   * session, through every later layout.
+   */
+  releaseGeometry(): void;
   stop(): void;
   status(): { sequence: number; committedSequence: number; running: boolean; dirty: boolean; error: unknown };
 };
@@ -118,16 +134,6 @@ export function startNativeSurfaceObserver(
       presentationLease!(declaration) === runtime.presentationVisible(declaration)
     ))) {
       presentationLease = null;
-    }
-    if (geometryStage === null && geometryLease && declarations.every((declaration) => {
-      const id = declaration.dataset.nativeSurfaceId ?? "";
-      const target = geometryLease!.get(id);
-      if (!target) return true;
-      const rect = declaration.getBoundingClientRect();
-      return rect.left === target.x && rect.top === target.y
-        && rect.width === target.width && rect.height === target.height;
-    })) {
-      geometryLease = null;
     }
     const hadInteractiveEdge = interactiveEdges.length > 0;
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
@@ -237,6 +243,11 @@ export function startNativeSurfaceObserver(
         geometryStages.push({ frames: new Map(frames), resolve, reject });
         requestFlush();
       });
+    },
+    releaseGeometry() {
+      if (stopped || geometryLease === null) return;
+      geometryLease = null;
+      schedule();
     },
     stop() {
       if (stopped) return;

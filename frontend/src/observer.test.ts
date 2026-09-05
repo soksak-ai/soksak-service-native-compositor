@@ -39,7 +39,12 @@ function deferred() {
 }
 
 describe("native surface observer", () => {
-  it("applies staged geometry until the document publishes the same rectangle", async () => {
+  // Measured 2026-09-05 in a three-pane window: a gutter drag staged the pane's rectangle at a
+  // width of 160.26, the document laid the declaring element out 160 wide, and the staged
+  // rectangle stood for the rest of the session. A pane.resize after it moved the element to
+  // 273 and the surface stayed at 366 — the lease was waiting for a rectangle the document would
+  // never report. What ends the lease is the caller publishing the layout, not a measurement.
+  it("applies staged geometry until the caller publishes the layout, then measures again", async () => {
     let left = 0;
     const element = declaration("browser", () => left);
     let resize!: () => void;
@@ -57,7 +62,7 @@ describe("native surface observer", () => {
     }, "win-a");
 
     await Promise.resolve();
-    const target = { x: 120, y: 0, width: 400, height: 600 };
+    const target = { x: 120, y: 0, width: 400.26, height: 600 };
     await controller.stageGeometry(new Map([["browser", target]]));
     expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
 
@@ -68,11 +73,13 @@ describe("native surface observer", () => {
     await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
 
+    // The document lays the element out a fraction away from the staged rectangle. Published, the
+    // measured rectangle owns the surface again — in the commit the release itself schedules.
     left = 120;
-    resize();
+    controller.releaseGeometry();
     await Promise.resolve();
     await Promise.resolve();
-    expect(committed.at(-1)?.surfaces[0].frame).toEqual(target);
+    expect(committed.at(-1)?.surfaces[0].frame).toEqual({ x: 120, y: 0, width: 400, height: 600 });
 
     left = 180;
     resize();
