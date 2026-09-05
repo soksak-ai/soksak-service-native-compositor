@@ -5,6 +5,11 @@ README and the other documents in this directory.
 
 ## 2026-09-05
 
+- A staged presentation lease ends when the caller reports the DOM state published
+  (`releasePresentation`), and the release commits the DOM's presentation. It used to end when
+  every declaration's DOM presentation agreed with the stage, which a stage that hid a declaration
+  the DOM then showed never did. Version 0.0.5.
+
 - A staged geometry lease ends when the caller reports the DOM layout published
   (`releaseGeometry`), and the release commits the measured rectangles. The lease used to end when
   every addressed declaration reported the staged rectangle exactly, which a document that lays the

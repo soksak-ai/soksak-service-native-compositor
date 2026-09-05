@@ -37,8 +37,22 @@ export type NativeSurfaceObserverRuntime = {
 export type NativeSurfaceObserverController = {
   /** Publish the explicit begin/end edge of an interactive layout phase. */
   setInteractive(active: boolean): void;
-  /** Applies a host presentation decision before the DOM declaration publishes that decision. */
+  /**
+   * Applies a host presentation decision before the DOM declaration publishes that decision.
+   *
+   * The decision stands through every flush until `releasePresentation`, conjoined with the DOM's
+   * own presentation: it can hide what the DOM shows, never show what the DOM hides.
+   */
   stagePresentation(visible: NativeSurfacePresentation): Promise<NativeSurfaceReceipt>;
+  /**
+   * The document has published the presentation the staged decision was for. From here the DOM's
+   * presentation owns the surfaces again, in a flush this call schedules.
+   *
+   * The lease used to end when every declaration's DOM presentation agreed with it, and a stage
+   * that hid a declaration the DOM then showed never agreed: the surface stayed hidden until
+   * another stage named it (measured 2026-09-05 at boot, every terminal blank until a click).
+   */
+  releasePresentation(): void;
   /**
    * Applies target rectangles before the document publishes the matching layout commit.
    *
@@ -130,11 +144,6 @@ export function startNativeSurfaceObserver(
     dirty = false;
     running = true;
     const declarations = [...runtime.declarations()];
-    if (presentationStage === null && presentationLease && declarations.every((declaration) => (
-      presentationLease!(declaration) === runtime.presentationVisible(declaration)
-    ))) {
-      presentationLease = null;
-    }
     const hadInteractiveEdge = interactiveEdges.length > 0;
     const snapshotInteractive = interactiveEdges.shift() ?? interactive;
     // A staged presentation is an early target, not a second owner of visibility. The DOM host
@@ -247,6 +256,11 @@ export function startNativeSurfaceObserver(
     releaseGeometry() {
       if (stopped || geometryLease === null) return;
       geometryLease = null;
+      schedule();
+    },
+    releasePresentation() {
+      if (stopped || presentationLease === null) return;
+      presentationLease = null;
       schedule();
     },
     stop() {

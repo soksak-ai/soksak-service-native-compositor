@@ -36,10 +36,13 @@ The frontend package observes declarations with `MutationObserver` and
 The observer controller exposes `stagePresentation(predicate)` for a host transaction that must
 apply visibility before publishing the matching DOM state. Staging uses the observer's sequence and
 serialized writer, reads the current declarations and geometry, and resolves only with the actual
-commit receipt. A later DOM mutation confirms the staged inventory through the ordinary observer
-path. Until that confirmation, unrelated mutations and interactive edges reuse the staged
-presentation predicate and cannot restore the previous DOM visibility. Applications pass the
-predicate; this package does not read a layout tree or view id.
+commit receipt. The staged predicate stands, conjoined with the DOM's own presentation, until the
+host calls `releasePresentation` once it has published the matching DOM state; until then,
+unrelated mutations and interactive edges reuse it and cannot restore the previous DOM visibility.
+It does not end on a measurement: ending it when the DOM agreed with the stage left a stage that
+hid a surface the DOM then showed in force until another stage named that surface (measured
+2026-09-05 at boot, every terminal blank until a click). Applications pass the predicate; this
+package does not read a layout tree or view id.
 
 The Go service exposes:
 

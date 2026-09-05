@@ -140,14 +140,54 @@ describe("native surface observer", () => {
     await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
 
-    // Once DOM reaches the staged decision it regains ownership. A later DOM change is ordinary.
+    // The DOM publishes the staged decision and the caller releases the stage: the DOM owns the
+    // presentation again, and a later DOM change is ordinary.
     domVisible = false;
     mutation({ inventoryChanged: false });
     await Promise.resolve();
     await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+    controller.releasePresentation();
     domVisible = true;
     mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(true);
+    controller.stop();
+  });
+
+  // The lease ended when every declaration's DOM presentation agreed with it. A stage that hid a
+  // declaration the DOM then showed never agreed: the surface stayed hidden until another stage
+  // named it. Measured 2026-09-05 at boot, every terminal blank until the first click. The end of
+  // the lease is the caller's word, as for geometry.
+  it("applies a staged presentation until the caller releases it, then measures the DOM again", async () => {
+    const element = declaration("browser", () => 0);
+    const committed: NativeSurfaceSnapshot[] = [];
+    let domVisible = true;
+    let mutation!: (change: { inventoryChanged: boolean }) => void;
+    const controller = startNativeSurfaceObserver({
+      declarations: () => [element],
+      presentationVisible: () => domVisible,
+      observeMutations: (callback) => { mutation = callback; return () => undefined; },
+      observeResizes: () => () => undefined,
+      observeMoves: () => () => undefined,
+      schedule: queueMicrotask,
+    }, async (snapshot) => {
+      committed.push(snapshot);
+      return { sequence: snapshot.sequence, accepted: true, surfaces: [] };
+    }, "win-a");
+    await Promise.resolve();
+
+    await controller.stagePresentation(() => false);
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+    // The DOM shows the declaration and never hides it: the stage and the DOM never agree.
+    domVisible = true;
+    mutation({ inventoryChanged: false });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(committed.at(-1)?.surfaces[0].visible).toBe(false);
+
+    controller.releasePresentation();
     await Promise.resolve();
     await Promise.resolve();
     expect(committed.at(-1)?.surfaces[0].visible).toBe(true);
